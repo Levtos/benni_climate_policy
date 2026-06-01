@@ -1,0 +1,15 @@
+{
+  "config": {
+    "step": {
+      "context": { "title": "Context" },
+      "environment": { "title": "Umgebung" },
+      "zones": { "title": "Zonen" },
+      "windows": { "title": "Fenster" },
+      "apply": { "title": "Apply" }
+    },
+    "abort": {
+      "single_instance_allowed": "Es ist nur eine Climate-Policy-Instanz erlaubt."
+    }
+  }
+}
+
