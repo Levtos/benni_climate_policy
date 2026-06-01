@@ -1,0 +1,36 @@
+apply_now:
+  fields:
+    zone:
+      selector:
+        select:
+          options:
+            - living_room
+            - kitchen
+      required: false
+apply_zone:
+  fields:
+    zone:
+      selector:
+        select:
+          options:
+            - living_room
+            - kitchen
+      required: true
+set_apply_active:
+  fields:
+    active:
+      selector:
+        boolean:
+      required: true
+recalculate:
+  fields: {}
+dry_run:
+  fields:
+    zone:
+      selector:
+        select:
+          options:
+            - living_room
+            - kitchen
+      required: false
+

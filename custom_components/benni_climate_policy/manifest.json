@@ -1,0 +1,10 @@
+{
+  "domain": "benni_climate_policy",
+  "name": "Benni Climate Policy",
+  "codeowners": ["@Benni"],
+  "config_flow": true,
+  "documentation": "https://github.com/Benni/benni_climate_policy",
+  "iot_class": "local_push",
+  "version": "0.1.0"
+}
+
