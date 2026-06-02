@@ -11,7 +11,51 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_BATHROOM, ZONE_KITCHEN, ZONE_LIVING
 from .coordinator import ClimatePolicyCoordinator
+from .diagnostics import compact_debug_attributes
 from .entity import ClimatePolicyEntity
+
+
+def _compact_zone_plan(plan) -> dict[str, Any]:
+    return {
+        "zone": plan.zone,
+        "profile": plan.profile,
+        "target_temperature": plan.target_temperature,
+        "reason": plan.reason,
+        "apply_status": plan.apply_status,
+        "apply_block_reason": plan.apply_block_reason,
+        "apply_blocked": plan.apply_blocked,
+        "blocked_by": list(plan.blocked_by),
+        "input_quality": plan.input_quality,
+        "effective_outdoor_temperature": plan.effective_outdoor_temperature,
+        "is_boost_active": plan.is_boost_active,
+        "hysteresis_state": plan.hysteresis_state,
+        "policy_config_hash": plan.policy_config_hash,
+        "plan_hash": plan.plan_hash,
+        "last_calculated": plan.last_calculated,
+        "last_applied": plan.last_applied,
+    }
+
+
+def _compact_fan_plan(plan) -> dict[str, Any]:
+    diagnostics = plan.diagnostics or {}
+    return {
+        "zone": plan.zone,
+        "mode": plan.mode,
+        "reason": plan.reason,
+        "target_switch_state": plan.target_switch_state,
+        "apply_status": plan.apply_status,
+        "apply_block_reason": plan.apply_block_reason,
+        "apply_blocked": plan.apply_blocked,
+        "blocked_by": list(plan.blocked_by),
+        "dewpoint": diagnostics.get("dewpoint"),
+        "absolute_humidity_bathroom": diagnostics.get("absolute_humidity_bathroom"),
+        "absolute_humidity_living": diagnostics.get("absolute_humidity_living"),
+        "ah_delta": diagnostics.get("ah_delta"),
+        "heating_fan_coordination_state": diagnostics.get("heating_fan_coordination_state"),
+        "policy_config_hash": plan.policy_config_hash,
+        "plan_hash": plan.plan_hash,
+        "last_calculated": plan.last_calculated,
+    }
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -50,11 +94,24 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        inputs = self.coord.effective_input_snapshot()
+        compact_inputs = {
+            key: inputs.get(key)
+            for key in (
+                "real_temperature",
+                "feels_like_temperature",
+                "forecast_temperature",
+                "weather_condition",
+                "outdoor_lux",
+                "sun_elevation",
+            )
+        }
+        compact_inputs["source_entities"] = inputs.get("source_entities")
         if not self.coord.decision:
-            return {"inputs": self.coord.effective_input_snapshot()}
+            return compact_inputs
         return {
             **self.coord.decision.effective_temperature.as_dict(),
-            "inputs": self.coord.effective_input_snapshot(),
+            "inputs": compact_inputs,
         }
 
 
@@ -68,10 +125,12 @@ class ApplyStatusSensor(ClimatePolicyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        result = self.coord.last_apply_result.as_dict() if self.coord.last_apply_result else {}
+        result = self.coord.last_apply_result
         return {
-            **result,
-            "result": result or None,
+            "status": result.status if result else "idle",
+            "reason": result.reason if result else "idle",
+            "dry_run": result.dry_run if result else False,
+            "action_count": len(result.actions) if result else 0,
             "apply_active": self.coord.apply_active,
             "apply_ready": self.coord.apply_ready,
             "manual_apply_possible": self.coord.manual_apply_possible,
@@ -106,12 +165,19 @@ class DebugSummarySensor(ClimatePolicyEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         if not self.coord.decision:
             return {}
-        return {
-            "context": self.coord.decision.context.as_dict(),
+        payload = {
+            "system_ready": self.coord.system_ready,
+            "apply_active": self.coord.apply_active,
+            "apply_status": self.coord.last_apply_result.status if self.coord.last_apply_result else "idle",
             "effective_outdoor_temperature": self.coord.decision.effective_temperature.as_dict(),
-            "plans": {zone: plan.as_dict() for zone, plan in self.coord.decision.zone_plans.items()},
-            "debug": self.coord.debug_payload(),
+            "plans": {
+                zone: _compact_zone_plan(plan)
+                for zone, plan in self.coord.decision.zone_plans.items()
+            },
+            "bathroom": self.coord.bathroom_debug(),
+            "last_apply_result": self.coord.last_apply_result.as_dict() if self.coord.last_apply_result else None,
         }
+        return compact_debug_attributes(payload)
 
 
 class ZoneSensorBase(ClimatePolicyEntity, SensorEntity):
@@ -129,7 +195,7 @@ class ZoneSensorBase(ClimatePolicyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return self.plan.as_dict() if self.plan else {}
+        return _compact_zone_plan(self.plan) if self.plan else {}
 
 
 class ZoneModeSensor(ZoneSensorBase):
@@ -196,7 +262,7 @@ class BathroomFanSensorBase(ClimatePolicyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return self.plan.as_dict() if self.plan else {}
+        return _compact_fan_plan(self.plan) if self.plan else {}
 
 
 class BathroomFanModeSensor(BathroomFanSensorBase):

@@ -13,6 +13,30 @@ from .coordinator import ClimatePolicyCoordinator
 from .entity import ClimatePolicyEntity
 
 
+def _zone_block_attrs(plan) -> dict[str, Any]:
+    return {
+        "zone": plan.zone,
+        "profile": plan.profile,
+        "target_temperature": plan.target_temperature,
+        "reason": plan.reason,
+        "apply_block_reason": plan.apply_block_reason,
+        "blocked_by": list(plan.blocked_by),
+        "plan_hash": plan.plan_hash,
+    }
+
+
+def _fan_block_attrs(plan) -> dict[str, Any]:
+    return {
+        "zone": plan.zone,
+        "mode": plan.mode,
+        "reason": plan.reason,
+        "target_switch_state": plan.target_switch_state,
+        "apply_block_reason": plan.apply_block_reason,
+        "blocked_by": list(plan.blocked_by),
+        "plan_hash": plan.plan_hash,
+    }
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coord: ClimatePolicyCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
     entities: list[BinarySensorEntity] = [
@@ -37,7 +61,7 @@ class SystemReadyBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
         return {
             "startup_ready": self.coord.startup_ready,
             "debug": self.coord.debug_summary(),
-            "inputs": self.coord.input_snapshot(),
+            "debug_payload_available": True,
         }
 
 
@@ -73,7 +97,7 @@ class ZoneApplyBlockedBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         plan = self.coord.zone_plan(self.zone)
-        return plan.as_dict() if plan else {"reason": "not_calculated"}
+        return _zone_block_attrs(plan) if plan else {"reason": "not_calculated"}
 
 
 class BathroomFanApplyBlockedBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
@@ -88,5 +112,5 @@ class BathroomFanApplyBlockedBinarySensor(ClimatePolicyEntity, BinarySensorEntit
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         plan = self.coord.bathroom_fan_plan
-        return plan.as_dict() if plan else {"reason": "not_calculated"}
+        return _fan_block_attrs(plan) if plan else {"reason": "not_calculated"}
 

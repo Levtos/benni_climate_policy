@@ -12,6 +12,7 @@ const ENTITIES = {
   bathroomFanPlanHash: "sensor.bathroom_fan_plan_hash",
   bathroomFanBlocked: "binary_sensor.bathroom_fan_apply_blocked",
 };
+const DEBUG_API_PATH = `${DOMAIN}/debug`;
 
 const ZONES = {
   living_room: {
@@ -242,40 +243,44 @@ function debugAttrs(hass) {
   return (stateObj(hass, ENTITIES.debugSummary) || {}).attributes || {};
 }
 
-function debugPayload(hass) {
-  return debugAttrs(hass).debug || {};
+function endpointDebug(app) {
+  return app?._debugPayload || {};
 }
 
-function plans(hass) {
-  return debugAttrs(hass).plans || {};
+function debugPayload(hass, app) {
+  return endpointDebug(app).debug || {};
 }
 
-function contextSnapshot(hass) {
-  return debugAttrs(hass).context || {};
+function plans(hass, app) {
+  return endpointDebug(app).plans || {};
 }
 
-function effectiveBreakdown(hass) {
-  const fromDebug = debugAttrs(hass).effective_outdoor_temperature || {};
+function contextSnapshot(hass, app) {
+  return endpointDebug(app).context || {};
+}
+
+function effectiveBreakdown(hass, app) {
+  const fromDebug = endpointDebug(app).effective_outdoor_temperature || {};
   const fromSensor = (stateObj(hass, ENTITIES.effectiveTemp) || {}).attributes || {};
   return { ...fromDebug, ...fromSensor };
 }
 
-function effectiveInputs(hass) {
-  const fromDebug = debugPayload(hass).effective_inputs || {};
+function effectiveInputs(hass, app) {
+  const fromDebug = endpointDebug(app).effective_inputs || debugPayload(hass, app).effective_inputs || {};
   const fromSensor = attr(hass, ENTITIES.effectiveTemp, "inputs", {}) || {};
   return { ...fromDebug, ...fromSensor };
 }
 
-function thresholds(hass) {
-  return debugPayload(hass).thresholds || {};
+function thresholds(hass, app) {
+  return endpointDebug(app).thresholds || debugPayload(hass, app).thresholds || {};
 }
 
-function tuningOptions(hass) {
-  return debugPayload(hass).tuning_options || {};
+function tuningOptions(hass, app) {
+  return endpointDebug(app).tuning_options || debugPayload(hass, app).tuning_options || {};
 }
 
-function bathroomDebug(hass) {
-  return debugPayload(hass).bathroom || {};
+function bathroomDebug(hass, app) {
+  return endpointDebug(app).bathroom || debugPayload(hass, app).bathroom || {};
 }
 
 function statusKind(value) {
@@ -310,6 +315,13 @@ function jsonBlock(value) {
   return `<div class="pre mono">${esc(JSON.stringify(value ?? null, null, 2))}</div>`;
 }
 
+function debugEndpointNotice(app) {
+  const message = app?._debugError
+    ? `Debug-Endpunkt nicht erreichbar: ${app._debugError}`
+    : "Debug-Daten werden geladen oder sind noch nicht verfügbar.";
+  return `<div class="notice">${esc(message)}</div>`;
+}
+
 function serviceAvailable(hass, service) {
   return Boolean(hass && hass.services && hass.services[DOMAIN] && hass.services[DOMAIN][service]);
 }
@@ -318,8 +330,8 @@ function entityAvailable(hass, entityId) {
   return Boolean(stateObj(hass, entityId));
 }
 
-function zonePlan(hass, zone) {
-  const plan = plans(hass)[zone] || {};
+function zonePlan(hass, zone, app) {
+  const plan = plans(hass, app)[zone] || {};
   const z = ZONES[zone];
   return {
     ...plan,
@@ -333,11 +345,11 @@ function zonePlan(hass, zone) {
   };
 }
 
-function renderOverview(hass) {
-  const living = zonePlan(hass, "living_room");
-  const kitchen = zonePlan(hass, "kitchen");
-  const bathroom = zonePlan(hass, "bathroom");
-  const bath = bathroomDebug(hass);
+function renderOverview(hass, app) {
+  const living = zonePlan(hass, "living_room", app);
+  const kitchen = zonePlan(hass, "kitchen", app);
+  const bathroom = zonePlan(hass, "bathroom", app);
+  const bath = bathroomDebug(hass, app);
   const fan = bath.fan_plan || {};
   const loaded = Object.keys(hass?.states || {}).some((id) =>
     id.includes("climate_policy") || id.includes("climate_effective") || id.includes("climate_system_ready"));
@@ -360,8 +372,11 @@ function renderOverview(hass) {
   `;
 }
 
-function renderContext(hass) {
-  const ctx = contextSnapshot(hass);
+function renderContext(hass, app) {
+  const ctx = contextSnapshot(hass, app);
+  if (!Object.keys(ctx).length) {
+    return debugEndpointNotice(app);
+  }
   const labels = {
     activity_state: "Activity State",
     bio_state: "Bio State",
@@ -389,9 +404,9 @@ function renderContext(hass) {
   </div></div>`;
 }
 
-function renderZones(hass) {
+function renderZones(hass, app) {
   const zoneCards = Object.entries(ZONES).map(([zone, meta]) => {
-    const plan = zonePlan(hass, zone);
+    const plan = zonePlan(hass, zone, app);
     return `<div class="card">
       <h2>${icon("mdi:home-thermometer-outline")}${esc(meta.label)}</h2>
       ${kv("climate mode", plan.profile)}
@@ -413,9 +428,9 @@ function renderZones(hass) {
   return `<div class="grid cols-2">${zoneCards}</div>`;
 }
 
-function renderBathroom(hass) {
-  const bath = bathroomDebug(hass);
-  const climate = bath.climate_plan || zonePlan(hass, "bathroom");
+function renderBathroom(hass, app) {
+  const bath = bathroomDebug(hass, app);
+  const climate = bath.climate_plan || zonePlan(hass, "bathroom", app);
   const fan = bath.fan_plan || {};
   const diag = fan.diagnostics || {};
   const tuning = bath.tuning || {};
@@ -505,10 +520,10 @@ function fieldRows(app, data, fields) {
 }
 
 function renderThresholds(hass, app) {
-  const data = tuningOptions(hass);
-  const current = thresholds(hass);
+  const data = tuningOptions(hass, app);
+  const current = thresholds(hass, app);
   if (!data.values) {
-    return `<div class="notice">Tuning-Daten sind noch nicht verfügbar.</div>`;
+    return debugEndpointNotice(app);
   }
   app?._ensureTuningDraft(data);
   const updateAvailable = serviceAvailable(hass, "update_options");
@@ -567,9 +582,9 @@ function renderThresholds(hass, app) {
   <div class="section tuning-grid">${cards}</div>`;
 }
 
-function renderEffective(hass) {
-  const br = effectiveBreakdown(hass);
-  const inp = effectiveInputs(hass);
+function renderEffective(hass, app) {
+  const br = effectiveBreakdown(hass, app);
+  const inp = effectiveInputs(hass, app);
   const sourceEntities = inp.source_entities || {};
   return `<div class="grid cols-2">
     <div class="card">
@@ -604,11 +619,11 @@ function actionButton(id, label, iconName, primary, available) {
   </button>`;
 }
 
-function renderApply(hass) {
+function renderApply(hass, app) {
   const applyNow = serviceAvailable(hass, "apply_now");
   const dryRun = serviceAvailable(hass, "dry_run");
-  const payload = debugPayload(hass);
-  const lastApply = payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null);
+  const payload = debugPayload(hass, app);
+  const lastApply = endpointDebug(app).last_apply_result || payload.last_apply_result || null;
   return `<div class="grid cols-3">
     ${metric("Auto-Apply Toggle Zustand", stateText(hass, ENTITIES.applyActive), ENTITIES.applyActive)}
     ${metric("Auto-Apply Ready", stateText(hass, ENTITIES.applyReady), ENTITIES.applyReady)}
@@ -646,8 +661,11 @@ function renderApply(hass) {
   </div>`;
 }
 
-function renderInputs(hass) {
-  const inputs = debugPayload(hass).inputs || attr(hass, ENTITIES.systemReady, "inputs", []) || [];
+function renderInputs(hass, app) {
+  const inputs = endpointDebug(app).inputs || debugPayload(hass, app).inputs || [];
+  if (!inputs.length) {
+    return debugEndpointNotice(app);
+  }
   const rows = inputs.map((item) => `<tr>
     <td>${esc(item.role || "other")}</td>
     <td class="mono">${esc(item.key || "")}</td>
@@ -663,10 +681,14 @@ function renderInputs(hass) {
   </div></div>`;
 }
 
-function renderDebug(hass) {
+function renderDebug(hass, app) {
   const dbg = debugAttrs(hass);
-  const payload = debugPayload(hass);
-  const planMap = plans(hass);
+  const payload = debugPayload(hass, app);
+  const full = endpointDebug(app);
+  const planMap = plans(hass, app);
+  if (!Object.keys(full).length) {
+    return debugEndpointNotice(app);
+  }
   const paths = Object.entries(planMap).map(([zone, plan]) => ({
     zone,
     reason: plan.reason,
@@ -679,8 +701,8 @@ function renderDebug(hass) {
     || "none";
   return `<div class="grid cols-2">
     <div class="card"><h2>${icon("mdi:routes")}Letzter Decision Path</h2>${jsonBlock(paths)}</div>
-    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonBlock(thresholds(hass))}</div>
-    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonBlock(contextSnapshot(hass))}</div>
+    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonBlock(thresholds(hass, app))}</div>
+    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonBlock(contextSnapshot(hass, app))}</div>
     <div class="card"><h2>${icon("mdi:file-tree-outline")}Letzter Plan JSON</h2>${jsonBlock(planMap)}</div>
     <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>${jsonBlock(payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}</div>
     <div class="card"><h2>${icon("mdi:block-helper")}Letzter Skip-/Blockgrund</h2>${kv("reason", skipReason)}</div>
@@ -718,10 +740,15 @@ class BcpApp extends HTMLElement {
     this._tuningDraft = null;
     this._tuningBase = null;
     this._tuningError = "";
+    this._debugPayload = null;
+    this._debugError = "";
+    this._debugFetchInFlight = false;
+    this._debugLastFetch = 0;
   }
 
   set hass(value) {
     this._hass = value;
+    this._ensureDebugFetch();
     this._scheduleRender();
   }
 
@@ -742,6 +769,30 @@ class BcpApp extends HTMLElement {
     this._timer = setTimeout(() => this._render(), 120);
   }
 
+  _ensureDebugFetch(force = false) {
+    if (!this._hass || !this._hass.callApi || this._debugFetchInFlight) return;
+    const now = Date.now();
+    if (!force && this._debugLastFetch && now - this._debugLastFetch < 15000) return;
+    this._fetchDebugPayload(force);
+  }
+
+  async _fetchDebugPayload(force = false) {
+    if (!this._hass || !this._hass.callApi || this._debugFetchInFlight) return;
+    const now = Date.now();
+    if (!force && this._debugLastFetch && now - this._debugLastFetch < 15000) return;
+    this._debugFetchInFlight = true;
+    this._debugLastFetch = now;
+    try {
+      this._debugPayload = await this._hass.callApi("GET", DEBUG_API_PATH);
+      this._debugError = "";
+    } catch (err) {
+      this._debugError = err.message || String(err);
+    } finally {
+      this._debugFetchInFlight = false;
+      this._scheduleRender();
+    }
+  }
+
   _render() {
     const nav = NAV.map(([id, label, iconName]) => `<button data-view="${id}" class="${id === this._view ? "active" : ""}">
       ${icon(iconName)}<span>${esc(label)}</span>
@@ -749,6 +800,9 @@ class BcpApp extends HTMLElement {
     const view = NAV.find(([id]) => id === this._view) || NAV[0];
     const renderer = RENDERERS[view[0]] || renderOverview;
     const hass = this._hass;
+    if (hass && !this._debugPayload && !this._debugFetchInFlight) {
+      this._ensureDebugFetch();
+    }
     const sys = stateText(hass, ENTITIES.systemReady);
     const apply = stateText(hass, ENTITIES.applyActive);
     const effective = stateText(hass, ENTITIES.effectiveTemp);
@@ -882,44 +936,52 @@ class BcpApp extends HTMLElement {
     try {
       if (action === "dry-run-global") {
         await this._hass.callService(DOMAIN, "dry_run", {});
+        await this._fetchDebugPayload(true);
       } else if (action === "apply-global") {
         await this._hass.callService(DOMAIN, "apply_now", {});
+        await this._fetchDebugPayload(true);
       } else if (action === "tuning-save") {
-        const payload = this._validateTuningDraft(tuningOptions(this._hass));
+        const payload = this._validateTuningDraft(tuningOptions(this._hass, this));
         if (!Object.keys(payload).length) {
           this._toast("Keine Änderungen");
           return;
         }
         await this._hass.callService(DOMAIN, "update_options", { options: payload });
+        await this._fetchDebugPayload(true);
         this._tuningDraft = null;
         this._tuningBase = null;
         this._toast("Tuning gespeichert");
       } else if (action === "tuning-reset-all") {
-        const data = tuningOptions(this._hass);
+        const data = tuningOptions(this._hass, this);
         const keys = Object.values(data.sections || {}).flat();
         await this._hass.callService(DOMAIN, "reset_options", { keys });
+        await this._fetchDebugPayload(true);
         this._tuningDraft = null;
         this._tuningBase = null;
         this._toast("Tuning zurückgesetzt");
       } else if (action.startsWith("tuning-reset-section-")) {
         const section = action.replace("tuning-reset-section-", "");
-        const keys = (tuningOptions(this._hass).sections || {})[section] || [];
+        const keys = (tuningOptions(this._hass, this).sections || {})[section] || [];
         await this._hass.callService(DOMAIN, "reset_options", { keys });
+        await this._fetchDebugPayload(true);
         this._tuningDraft = null;
         this._tuningBase = null;
         this._toast("Abschnitt zurückgesetzt");
       } else if (action.startsWith("tuning-reset-band-")) {
         const band = action.replace("tuning-reset-band-", "");
-        const bandData = (tuningOptions(this._hass).threshold_bands || {})[band] || {};
+        const bandData = (tuningOptions(this._hass, this).threshold_bands || {})[band] || {};
         const keys = Object.values(bandData.keys || {});
         await this._hass.callService(DOMAIN, "reset_options", { keys });
+        await this._fetchDebugPayload(true);
         this._tuningDraft = null;
         this._tuningBase = null;
         this._toast("Band zurückgesetzt");
       } else if (action.startsWith("dry-run-")) {
         await this._hass.callService(DOMAIN, "dry_run", { zone: action.replace("dry-run-", "") });
+        await this._fetchDebugPayload(true);
       } else if (action.startsWith("apply-")) {
         await this._hass.callService(DOMAIN, "apply_now", { zone: action.replace("apply-", "") });
+        await this._fetchDebugPayload(true);
       }
       if (!action.startsWith("tuning-")) this._toast("Service ausgelöst");
     } catch (err) {
