@@ -5,6 +5,8 @@ const ENTITIES = {
   applyReady: "binary_sensor.climate_policy_apply_ready",
   applyActive: "switch.climate_policy_apply_active",
   effectiveTemp: "sensor.climate_effective_outdoor_temperature",
+  forecastTemp3h: "sensor.climate_forecast_temperature_3h",
+  outdoorFeelsLike: "sensor.climate_outdoor_feels_like_temperature",
   applyStatus: "sensor.climate_policy_apply_status",
   lastApply: "sensor.climate_policy_last_apply",
   debugSummary: "sensor.climate_debug_summary",
@@ -593,9 +595,9 @@ function renderEffective(hass, app) {
     <div class="card">
       <h2>${icon("mdi:database-eye-outline")}Inputs</h2>
       ${kv("reale Außentemperatur", inp.real_temperature ?? br.real_temperature ?? "not exposed yet")}
-      ${kv("gefühlte Außentemperatur", inp.feels_like_temperature ?? "not exposed yet")}
+      ${metric("gefühlte Außentemperatur", stateText(hass, ENTITIES.outdoorFeelsLike), ENTITIES.outdoorFeelsLike)}
       ${kv("Wetterzustand", inp.weather_condition ?? "not exposed yet")}
-      ${kv("Forecast +3h", inp.forecast_temperature ?? "not exposed yet")}
+      ${metric("Forecast +3h", stateText(hass, ENTITIES.forecastTemp3h), ENTITIES.forecastTemp3h)}
       ${kv("Lux", inp.outdoor_lux ?? "not exposed yet")}
       ${kv("Sun Elevation", inp.sun_elevation ?? "not exposed yet")}
     </div>

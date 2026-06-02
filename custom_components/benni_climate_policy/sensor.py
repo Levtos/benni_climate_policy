@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
@@ -62,6 +62,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coord: ClimatePolicyCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
     entities: list[SensorEntity] = [
         EffectiveOutdoorTemperatureSensor(coord),
+        ForecastTemperature3hSensor(coord),
+        OutdoorFeelsLikeTemperatureSensor(coord),
         ApplyStatusSensor(coord),
         LastApplySensor(coord),
         DebugSummarySensor(coord),
@@ -84,6 +86,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
 
     def __init__(self, coord: ClimatePolicyCoordinator) -> None:
         super().__init__(coord, "Climate Effective Outdoor Temperature", "effective_outdoor_temperature")
@@ -114,6 +117,58 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
         return {
             **self.coord.decision.effective_temperature.as_dict(),
             "inputs": compact_inputs,
+        }
+
+
+class ForecastTemperature3hSensor(ClimatePolicyEntity, SensorEntity):
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+
+    def __init__(self, coord: ClimatePolicyCoordinator) -> None:
+        super().__init__(coord, "Climate Forecast Temperature 3h", "forecast_temperature_3h")
+
+    @property
+    def native_value(self):
+        return self.coord.weather_resolution.forecast_temperature if self.coord.weather_resolution else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coord.weather_resolution:
+            return {}
+        diag = self.coord.weather_resolution.forecast
+        return {
+            "source": diag.source,
+            "weather_entity": diag.weather_entity,
+            "quality": diag.quality,
+            "fallback_used": diag.fallback_used,
+            "reason": diag.reason,
+            "target_time": diag.target_time,
+            "forecast_time": diag.forecast_datetime,
+        }
+
+
+class OutdoorFeelsLikeTemperatureSensor(ClimatePolicyEntity, SensorEntity):
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+
+    def __init__(self, coord: ClimatePolicyCoordinator) -> None:
+        super().__init__(coord, "Climate Outdoor Feels Like Temperature", "outdoor_feels_like_temperature")
+
+    @property
+    def native_value(self):
+        return self.coord.weather_resolution.feels_like_temperature if self.coord.weather_resolution else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coord.weather_resolution:
+            return {}
+        diag = self.coord.weather_resolution.feels_like
+        return {
+            "source": diag.source,
+            "source_entity_id": diag.source_entity_id,
+            "quality": diag.quality,
+            "fallback_used": diag.fallback_used,
+            "reason": diag.reason,
         }
 
 
