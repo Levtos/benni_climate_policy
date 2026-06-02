@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 
-from custom_components.benni_climate_policy.apply_engine import ApplyGateState, evaluate_apply_gate
+from custom_components.benni_climate_policy.apply_engine import ApplyEngine, ApplyGateState, evaluate_apply_gate
 from custom_components.benni_climate_policy.models import ZonePlan
 
 
@@ -73,4 +74,54 @@ def test_cooldown_blocks_reapply():
     result = evaluate_apply_gate(plan(), "climate.living", gate(last_apply_at=datetime(2026, 1, 1, 11, 55)))
     assert result.status == "blocked"
     assert result.reason == "cooldown_active"
+
+
+class _FakeState:
+    def __init__(self, state, attributes=None):
+        self.state = state
+        self.attributes = attributes or {}
+
+
+class _FakeStates:
+    def __init__(self):
+        self._states = {
+            "climate.living": _FakeState("off", {"hvac_modes": ["off", "heat"], "temperature": 18.0})
+        }
+
+    def get(self, entity_id):
+        return self._states.get(entity_id)
+
+
+class _FakeServices:
+    def __init__(self):
+        self.calls = []
+
+    async def async_call(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+
+
+class _FakeHass:
+    def __init__(self):
+        self.states = _FakeStates()
+        self.services = _FakeServices()
+
+
+def test_dry_run_reports_planned_calls_without_writing():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    p = plan()
+
+    result = asyncio.run(engine.async_apply_plan(
+        p,
+        target_entity_id="climate.living",
+        gate=gate(dry_run=True, manual=True),
+    ))
+
+    assert result.status == "dry_run"
+    assert result.reason == "would_call_services"
+    assert [c["service"] for c in result.service_calls] == ["set_hvac_mode", "set_temperature"]
+    assert result.service_calls[0]["target"] == {"entity_id": "climate.living"}
+    assert result.details["planned_hvac_mode"] == "heat"
+    assert result.details["planned_temperature"] == 21.0
+    assert hass.services.calls == []
 

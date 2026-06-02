@@ -9,7 +9,7 @@ from custom_components.benni_climate_policy.models import (
     WindowState,
     ZoneInput,
 )
-from custom_components.benni_climate_policy.policy import decide_zone
+from custom_components.benni_climate_policy.policy import decide_zone, policy_visibility_snapshot
 
 
 def sv(value):
@@ -119,4 +119,13 @@ def test_missing_thermostat_blocks_apply_but_still_calculates_plan():
     plan = decide_zone(ZoneInput("living_room"), ctx(), eff(0), datetime(2026, 1, 1, 12))
     assert plan.profile in ("komfort", "boost")
     assert "thermostat_entity_missing" in plan.blocked_by
+
+
+def test_policy_visibility_snapshot_uses_policy_thresholds():
+    snapshot = policy_visibility_snapshot(7, 18)
+    assert snapshot["active_month_band"] == "summer"
+    assert snapshot["thresholds"]["off"] == 19.5
+    assert snapshot["comfort_structurally_disabled"] is True
+    assert snapshot["boost_structurally_disabled"] is True
+    assert snapshot["setpoints"]["spar"] == 21.0
 

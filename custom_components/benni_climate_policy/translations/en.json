@@ -1,15 +1,164 @@
 {
   "config": {
+    "flow_title": "Benni Climate Policy",
     "step": {
-      "context": { "title": "Context" },
-      "environment": { "title": "Environment" },
-      "zones": { "title": "Zones" },
-      "windows": { "title": "Windows" },
-      "apply": { "title": "Apply" }
+      "context": {
+        "title": "Sensors & Context",
+        "description": "Select the context sensors used by the read-only climate policy core.",
+        "data": {
+          "context_activity_state": "Activity state",
+          "context_bio_state": "Bio state",
+          "context_day_context": "Day context",
+          "context_day_state": "Day state",
+          "context_presence_band": "Presence band",
+          "context_presence_household": "Household presence",
+          "context_presence_personal": "Personal presence",
+          "context_presence_preheat_active": "Presence preheat active",
+          "context_presence_transition": "Presence transition",
+          "context_workday_state": "Workday state",
+          "context_planned_wakeup_time": "Planned wakeup time"
+        }
+      },
+      "environment": {
+        "title": "Weather & Effective Temperature",
+        "description": "Select outdoor, weather, sun, and readiness inputs for effective temperature diagnostics.",
+        "data": {
+          "outdoor_temperature": "Outdoor temperature",
+          "outdoor_feels_like": "Feels-like outdoor temperature",
+          "forecast_temperature_3h": "Forecast temperature +3h",
+          "weather_condition": "Weather condition",
+          "outdoor_lux": "Outdoor illuminance",
+          "sun_entity": "Sun entity",
+          "system_ready": "System ready entity"
+        }
+      },
+      "zones": {
+        "title": "Zones & Thermostats",
+        "description": "Assign room sensors and thermostats. Bathroom entries are placeholders until the bathroom policy PR.",
+        "data": {
+          "living_room_temperature": "Living room temperature",
+          "living_room_humidity": "Living room humidity",
+          "living_room_thermostat": "Living room thermostat",
+          "kitchen_temperature": "Kitchen temperature",
+          "kitchen_humidity": "Kitchen humidity",
+          "kitchen_thermostat": "Kitchen thermostat",
+          "bathroom_temperature": "Bathroom temperature",
+          "bathroom_humidity": "Bathroom humidity",
+          "bathroom_thermostat": "Bathroom thermostat",
+          "bath_fan": "Bathroom fan"
+        }
+      },
+      "windows": {
+        "title": "Advanced Options",
+        "description": "Select window and patio-door contacts used as apply blockers.",
+        "data": {
+          "living_window_left_open": "Living window left open",
+          "living_window_left_tilt": "Living window left tilted",
+          "living_window_right_open": "Living window right open",
+          "living_window_right_tilt": "Living window right tilted",
+          "kitchen_patio_door_open": "Kitchen patio door open",
+          "kitchen_patio_door_tilt": "Kitchen patio door tilted"
+        }
+      },
+      "apply": {
+        "title": "Apply Engine",
+        "description": "Configure safe apply defaults. Auto apply remains disabled unless enabled explicitly.",
+        "data": {
+          "apply_active": "Auto apply active",
+          "startup_block_seconds": "Startup quiet period",
+          "cooldown_seconds": "Apply cooldown"
+        }
+      }
     },
     "abort": {
       "single_instance_allowed": "Only one Climate Policy instance is allowed."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Benni Climate Policy Options",
+        "description": "Choose which part of the integration configuration to review or adjust.",
+        "menu_options": {
+          "context": "Sensors & Context",
+          "zones": "Zones & Thermostats",
+          "environment": "Weather & Effective Temperature",
+          "apply": "Apply Engine",
+          "windows": "Advanced Options",
+          "diagnostics": "Diagnostics"
+        }
+      },
+      "context": {
+        "title": "Sensors & Context",
+        "description": "Review or change the configured context entities.",
+        "data": {
+          "context_activity_state": "Activity state",
+          "context_bio_state": "Bio state",
+          "context_day_context": "Day context",
+          "context_day_state": "Day state",
+          "context_presence_band": "Presence band",
+          "context_presence_household": "Household presence",
+          "context_presence_personal": "Personal presence",
+          "context_presence_preheat_active": "Presence preheat active",
+          "context_presence_transition": "Presence transition",
+          "context_workday_state": "Workday state",
+          "context_planned_wakeup_time": "Planned wakeup time"
+        }
+      },
+      "environment": {
+        "title": "Weather & Effective Temperature",
+        "description": "Review or change the outdoor and weather entities.",
+        "data": {
+          "outdoor_temperature": "Outdoor temperature",
+          "outdoor_feels_like": "Feels-like outdoor temperature",
+          "forecast_temperature_3h": "Forecast temperature +3h",
+          "weather_condition": "Weather condition",
+          "outdoor_lux": "Outdoor illuminance",
+          "sun_entity": "Sun entity",
+          "system_ready": "System ready entity"
+        }
+      },
+      "zones": {
+        "title": "Zones & Thermostats",
+        "description": "Review or change room sensors and thermostat assignments.",
+        "data": {
+          "living_room_temperature": "Living room temperature",
+          "living_room_humidity": "Living room humidity",
+          "living_room_thermostat": "Living room thermostat",
+          "kitchen_temperature": "Kitchen temperature",
+          "kitchen_humidity": "Kitchen humidity",
+          "kitchen_thermostat": "Kitchen thermostat",
+          "bathroom_temperature": "Bathroom temperature",
+          "bathroom_humidity": "Bathroom humidity",
+          "bathroom_thermostat": "Bathroom thermostat",
+          "bath_fan": "Bathroom fan"
+        }
+      },
+      "windows": {
+        "title": "Advanced Options",
+        "description": "Review or change window and patio-door blocker entities.",
+        "data": {
+          "living_window_left_open": "Living window left open",
+          "living_window_left_tilt": "Living window left tilted",
+          "living_window_right_open": "Living window right open",
+          "living_window_right_tilt": "Living window right tilted",
+          "kitchen_patio_door_open": "Kitchen patio door open",
+          "kitchen_patio_door_tilt": "Kitchen patio door tilted"
+        }
+      },
+      "apply": {
+        "title": "Apply Engine",
+        "description": "Review or change apply engine safety settings.",
+        "data": {
+          "apply_active": "Auto apply active",
+          "startup_block_seconds": "Startup quiet period",
+          "cooldown_seconds": "Apply cooldown"
+        }
+      },
+      "diagnostics": {
+        "title": "Diagnostics",
+        "description": "The read-only diagnostics panel is available from the Home Assistant sidebar as Climate Policy or directly at /benni-climate-policy."
+      }
+    }
   }
 }
-

@@ -51,7 +51,7 @@ from .models import (
     ZoneInput,
     ZonePlan,
 )
-from .policy import decide_zone, effective_outdoor_temperature, empty_context
+from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_visibility_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -250,6 +250,10 @@ class ClimatePolicyCoordinator:
     def apply_ready(self) -> bool:
         return self.apply_active and self.system_ready and self.startup_ready
 
+    @property
+    def manual_apply_possible(self) -> bool:
+        return self.system_ready and self.startup_ready
+
     async def async_evaluate(self, *, auto_apply: bool = False) -> ClimateDecision:
         now = dt_util.now()
         context = ContextResolver(self.hass, self.config).resolve()
@@ -364,13 +368,33 @@ class ClimatePolicyCoordinator:
         return f"ready={self.system_ready}; apply={self.apply_active}; {modes}"
 
     def debug_payload(self) -> dict[str, Any]:
+        now = dt_util.now()
+        effective_temperature = (
+            self.decision.effective_temperature.effective_temperature
+            if self.decision
+            else None
+        )
+        thresholds = policy_visibility_snapshot(now.month, effective_temperature)
         return {
             "system_ready": self.system_ready,
             "apply_active": self.apply_active,
             "apply_ready": self.apply_ready,
+            "manual_apply_possible": self.manual_apply_possible,
             "startup_ready": self.startup_ready,
             "startup_block_seconds": self.startup_block_seconds,
             "cooldown_seconds": self.cooldown_seconds,
+            "thresholds": {
+                **thresholds,
+                "apply_cooldowns": {
+                    "cooldown_seconds": self.cooldown_seconds,
+                    "startup_block_seconds": self.startup_block_seconds,
+                    "startup_ready": self.startup_ready,
+                    "last_apply_at": {
+                        zone: value.isoformat() if value else None
+                        for zone, value in self.last_apply_at.items()
+                    },
+                },
+            },
             "last_applied_hash": dict(self.last_applied_hash),
             "last_apply_at": {
                 zone: value.isoformat() if value else None

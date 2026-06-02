@@ -189,6 +189,7 @@ class ApplyActionResult:
     target_entity_id: str | None
     plan_hash: str | None
     service_calls: list[dict[str, Any]] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -198,6 +199,7 @@ class ApplyActionResult:
             "target_entity_id": self.target_entity_id,
             "plan_hash": self.plan_hash,
             "service_calls": list(self.service_calls),
+            "details": dict(self.details),
         }
 
 

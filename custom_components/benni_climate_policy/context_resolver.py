@@ -24,13 +24,14 @@ from .integration_contracts import candidate_for
 from .models import ClimateContextSnapshot, SourceValue
 
 
-def _state_value(hass: "HomeAssistant", entity_id: str | None) -> SourceValue:
+def _state_value(hass: "HomeAssistant", entity_id: str | None, *, none_is_valid: bool = False) -> SourceValue:
     if not entity_id:
         return SourceValue(None, None, "missing", False)
     state = hass.states.get(entity_id)
     if state is None:
         return SourceValue(None, entity_id, "missing", False)
-    if state.state in ("unknown", "unavailable", "none", ""):
+    invalid = ("unknown", "unavailable", "") if none_is_valid else ("unknown", "unavailable", "none", "")
+    if state.state in invalid:
         return SourceValue(state.state, entity_id, "unknown", False)
     return SourceValue(state.state, entity_id, "ok", False)
 
@@ -70,7 +71,7 @@ class ContextResolver:
             presence_household=_state_value(self.hass, self._entity(CONF_CONTEXT_PRESENCE_HOUSEHOLD)),
             presence_personal=_state_value(self.hass, self._entity(CONF_CONTEXT_PRESENCE_PERSONAL)),
             presence_preheat_active=_state_value(self.hass, self._entity(CONF_CONTEXT_PREHEAT_ACTIVE)),
-            presence_transition=_state_value(self.hass, self._entity(CONF_CONTEXT_TRANSITION)),
+            presence_transition=_state_value(self.hass, self._entity(CONF_CONTEXT_TRANSITION), none_is_valid=True),
             workday_state=_state_value(self.hass, self._entity(CONF_CONTEXT_WORKDAY)),
             planned_wakeup_time=wakeup,
         )
