@@ -1,8 +1,12 @@
 """Pure climate policy engine."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import hashlib
+import json
 import math
+from typing import Any, Mapping
 
 from .models import (
     ClimateContextSnapshot,
@@ -15,12 +19,257 @@ from .models import (
 
 SUMMER_MONTHS = {6, 7, 8}
 BOOST_DISABLED_MONTHS = {5, 6, 7, 8, 9}
+SETPOINT_OFF = 10.0
+SETPOINT_SPAR = 21.0
+SETPOINT_KOMFORT = 22.5
+BOOST_DELTA = 2.0
+SETPOINT_BOOST = SETPOINT_KOMFORT + BOOST_DELTA
 FLOOR_SLAB_TAU = 8.0
 LUX_BONUS_MAX = 3.0
 LUX_REFERENCE = 30000.0
 FEELS_LIKE_DAMPING = 0.5
 FORECAST_WEIGHT = 0.3
 BOOST_ACTIVATION_DELTA = 1.5
+
+OPT_SETPOINT_OFF = "setpoint_off"
+OPT_SETPOINT_SPAR = "setpoint_spar"
+OPT_SETPOINT_KOMFORT = "setpoint_komfort"
+OPT_SETPOINT_BOOST = "setpoint_boost"
+OPT_BOOST_DELTA = "boost_delta"
+OPT_BOOST_ACTIVATION_DELTA = "boost_activation_delta"
+OPT_FLOOR_SLAB_TAU = "floor_slab_tau"
+OPT_LUX_BONUS_MAX = "lux_bonus_max"
+OPT_LUX_REFERENCE = "lux_reference"
+OPT_FEELS_LIKE_DAMPING = "feels_like_damping"
+OPT_FORECAST_WEIGHT = "forecast_weight"
+
+
+@dataclass(frozen=True)
+class ThresholdBand:
+    months: tuple[int, ...]
+    off_threshold: float
+    comfort_threshold: float
+    boost_threshold: float
+    comfort_disabled: bool = False
+    boost_disabled: bool = False
+
+    def active_thresholds(self) -> dict[str, float | None]:
+        return {
+            "off": self.off_threshold,
+            "comfort": None if self.comfort_disabled else self.comfort_threshold,
+            "boost": None if self.boost_disabled else self.boost_threshold,
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "months": list(self.months),
+            "off_threshold": self.off_threshold,
+            "comfort_threshold": self.comfort_threshold,
+            "boost_threshold": self.boost_threshold,
+            "comfort_disabled": self.comfort_disabled,
+            "boost_disabled": self.boost_disabled,
+        }
+
+
+DEFAULT_THRESHOLD_BANDS: dict[str, ThresholdBand] = {
+    "winter": ThresholdBand((12, 1, 2), 15.5, 11.0, 5.0),
+    "late_winter": ThresholdBand((3,), 16.0, 11.5, 6.0),
+    "spring": ThresholdBand((4,), 17.0, 12.5, 8.0),
+    "late_spring": ThresholdBand((5,), 18.5, 14.0, 0.0, boost_disabled=True),
+    "summer": ThresholdBand((6, 7, 8), 19.5, 0.0, 0.0, comfort_disabled=True, boost_disabled=True),
+    "early_autumn": ThresholdBand((9,), 18.5, 14.0, 0.0, boost_disabled=True),
+    "autumn": ThresholdBand((10,), 17.0, 12.5, 8.0),
+    "late_autumn": ThresholdBand((11,), 16.0, 11.5, 6.0),
+}
+
+TUNING_OPTION_KEYS = (
+    OPT_SETPOINT_OFF,
+    OPT_SETPOINT_SPAR,
+    OPT_SETPOINT_KOMFORT,
+    OPT_SETPOINT_BOOST,
+    OPT_BOOST_DELTA,
+    OPT_BOOST_ACTIVATION_DELTA,
+    OPT_FLOOR_SLAB_TAU,
+    OPT_LUX_BONUS_MAX,
+    OPT_LUX_REFERENCE,
+    OPT_FEELS_LIKE_DAMPING,
+    OPT_FORECAST_WEIGHT,
+)
+
+
+def threshold_option_key(band: str, field_name: str) -> str:
+    return f"threshold_{band}_{field_name}"
+
+
+def _float_option(
+    options: Mapping[str, Any] | None,
+    key: str,
+    default: float,
+    sources: dict[str, str],
+    *,
+    min_value: float | None = None,
+    max_value: float | None = None,
+) -> float:
+    if options is None or key not in options:
+        sources[key] = "default"
+        return default
+    try:
+        value = float(options[key])
+    except (TypeError, ValueError):
+        sources[key] = "invalid_fallback_default"
+        return default
+    if min_value is not None and value < min_value:
+        sources[key] = "invalid_fallback_default"
+        return default
+    if max_value is not None and value > max_value:
+        sources[key] = "invalid_fallback_default"
+        return default
+    sources[key] = "user option"
+    return value
+
+
+def _bool_option(
+    options: Mapping[str, Any] | None,
+    key: str,
+    default: bool,
+    sources: dict[str, str],
+) -> bool:
+    if options is None or key not in options:
+        sources[key] = "default"
+        return default
+    sources[key] = "user option"
+    value = options[key]
+    if isinstance(value, str):
+        if value.lower() in ("false", "off", "0", "no"):
+            return False
+        if value.lower() in ("true", "on", "1", "yes"):
+            return True
+        sources[key] = "invalid_fallback_default"
+        return default
+    return bool(value)
+
+
+@dataclass(frozen=True)
+class PolicyTuning:
+    setpoint_off: float = SETPOINT_OFF
+    setpoint_spar: float = SETPOINT_SPAR
+    setpoint_komfort: float = SETPOINT_KOMFORT
+    setpoint_boost: float = SETPOINT_BOOST
+    boost_delta: float = BOOST_DELTA
+    boost_activation_delta: float = BOOST_ACTIVATION_DELTA
+    floor_slab_tau: float = FLOOR_SLAB_TAU
+    lux_bonus_max: float = LUX_BONUS_MAX
+    lux_reference: float = LUX_REFERENCE
+    feels_like_damping: float = FEELS_LIKE_DAMPING
+    forecast_weight: float = FORECAST_WEIGHT
+    threshold_bands: dict[str, ThresholdBand] = field(default_factory=lambda: DEFAULT_THRESHOLD_BANDS.copy())
+    sources: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def signature(self) -> str:
+        payload = {
+            "setpoints": {
+                "off": self.setpoint_off,
+                "spar": self.setpoint_spar,
+                "komfort": self.setpoint_komfort,
+                "boost": self.setpoint_boost,
+                "boost_delta": self.boost_delta,
+            },
+            "boost_activation_delta": self.boost_activation_delta,
+            "effective_temperature": {
+                "floor_slab_tau": self.floor_slab_tau,
+                "lux_bonus_max": self.lux_bonus_max,
+                "lux_reference": self.lux_reference,
+                "feels_like_damping": self.feels_like_damping,
+                "forecast_weight": self.forecast_weight,
+            },
+            "threshold_bands": {key: band.as_dict() for key, band in sorted(self.threshold_bands.items())},
+        }
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+    def source_for(self, key: str) -> str:
+        return self.sources.get(key, "default")
+
+
+def default_policy_tuning() -> PolicyTuning:
+    return policy_tuning_from_options({})
+
+
+def policy_tuning_from_options(options: Mapping[str, Any] | None) -> PolicyTuning:
+    sources: dict[str, str] = {}
+    setpoint_komfort = _float_option(options, OPT_SETPOINT_KOMFORT, SETPOINT_KOMFORT, sources, min_value=5.0, max_value=30.0)
+    boost_delta = _float_option(options, OPT_BOOST_DELTA, BOOST_DELTA, sources, min_value=0.0, max_value=5.0)
+    threshold_bands: dict[str, ThresholdBand] = {}
+    for band_key, default in DEFAULT_THRESHOLD_BANDS.items():
+        threshold_bands[band_key] = ThresholdBand(
+            months=default.months,
+            off_threshold=_float_option(
+                options,
+                threshold_option_key(band_key, "off_threshold"),
+                default.off_threshold,
+                sources,
+                min_value=0.0,
+                max_value=35.0,
+            ),
+            comfort_threshold=_float_option(
+                options,
+                threshold_option_key(band_key, "comfort_threshold"),
+                default.comfort_threshold,
+                sources,
+                min_value=0.0,
+                max_value=35.0,
+            ),
+            boost_threshold=_float_option(
+                options,
+                threshold_option_key(band_key, "boost_threshold"),
+                default.boost_threshold,
+                sources,
+                min_value=0.0,
+                max_value=35.0,
+            ),
+            comfort_disabled=_bool_option(
+                options,
+                threshold_option_key(band_key, "comfort_disabled"),
+                default.comfort_disabled,
+                sources,
+            ),
+            boost_disabled=_bool_option(
+                options,
+                threshold_option_key(band_key, "boost_disabled"),
+                default.boost_disabled,
+                sources,
+            ),
+        )
+    return PolicyTuning(
+        setpoint_off=_float_option(options, OPT_SETPOINT_OFF, SETPOINT_OFF, sources, min_value=5.0, max_value=30.0),
+        setpoint_spar=_float_option(options, OPT_SETPOINT_SPAR, SETPOINT_SPAR, sources, min_value=5.0, max_value=30.0),
+        setpoint_komfort=setpoint_komfort,
+        setpoint_boost=_float_option(
+            options,
+            OPT_SETPOINT_BOOST,
+            setpoint_komfort + boost_delta,
+            sources,
+            min_value=5.0,
+            max_value=30.0,
+        ),
+        boost_delta=boost_delta,
+        boost_activation_delta=_float_option(
+            options,
+            OPT_BOOST_ACTIVATION_DELTA,
+            BOOST_ACTIVATION_DELTA,
+            sources,
+            min_value=0.0,
+            max_value=10.0,
+        ),
+        floor_slab_tau=_float_option(options, OPT_FLOOR_SLAB_TAU, FLOOR_SLAB_TAU, sources, min_value=0.1, max_value=72.0),
+        lux_bonus_max=_float_option(options, OPT_LUX_BONUS_MAX, LUX_BONUS_MAX, sources, min_value=0.0, max_value=10.0),
+        lux_reference=_float_option(options, OPT_LUX_REFERENCE, LUX_REFERENCE, sources, min_value=1.0),
+        feels_like_damping=_float_option(options, OPT_FEELS_LIKE_DAMPING, FEELS_LIKE_DAMPING, sources, min_value=0.0, max_value=1.0),
+        forecast_weight=_float_option(options, OPT_FORECAST_WEIGHT, FORECAST_WEIGHT, sources, min_value=0.0, max_value=1.0),
+        threshold_bands=threshold_bands,
+        sources=sources,
+    )
 
 
 def _to_bool(value: object) -> bool:
@@ -103,75 +352,112 @@ def effective_outdoor_temperature(
 
 
 def threshold_for_month(month: int) -> dict[str, float | None]:
-    if month in (12, 1, 2):
-        return {"off": 15.5, "comfort": 11.0, "boost": 5.0}
-    if month == 3:
-        return {"off": 16.0, "comfort": 11.5, "boost": 6.0}
-    if month == 4:
-        return {"off": 17.0, "comfort": 12.5, "boost": 8.0}
-    if month == 5:
-        return {"off": 18.5, "comfort": 14.0, "boost": None}
-    if month in SUMMER_MONTHS:
-        return {"off": 19.5, "comfort": None, "boost": None}
-    if month == 9:
-        return {"off": 18.5, "comfort": 14.0, "boost": None}
-    if month == 10:
-        return {"off": 17.0, "comfort": 12.5, "boost": 8.0}
-    return {"off": 16.0, "comfort": 11.5, "boost": 6.0}
+    return threshold_for_month_config(month, default_policy_tuning())
 
 
 def monthly_band(month: int) -> str:
-    if month in (12, 1, 2):
-        return "winter"
-    if month in (3, 4):
-        return "spring_transition"
-    if month in (5, 9):
-        return "shoulder_no_boost"
-    if month in SUMMER_MONTHS:
-        return "summer"
-    return "heating_transition"
+    for key, band in DEFAULT_THRESHOLD_BANDS.items():
+        if month in band.months:
+            return key
+    return "late_autumn"
 
 
-def setpoint_for(profile: str, effective_temperature: float | None) -> float:
+def threshold_for_month_config(month: int, tuning: PolicyTuning) -> dict[str, float | None]:
+    return tuning.threshold_bands[monthly_band(month)].active_thresholds()
+
+
+def setpoint_for(profile: str, effective_temperature: float | None, tuning: PolicyTuning | None = None) -> float:
+    tuning = tuning or default_policy_tuning()
     if profile == "off":
-        return 10.0
+        return tuning.setpoint_off
     if profile == "boost":
-        return min(25.0, setpoint_for("komfort", effective_temperature) + 2.0)
+        return min(25.0, max(tuning.setpoint_boost, setpoint_for("komfort", effective_temperature, tuning) + tuning.boost_delta))
     if profile == "komfort":
+        target = tuning.setpoint_komfort
         if effective_temperature is not None and effective_temperature <= 5:
-            return 23.5
+            return target + 1.0
         if effective_temperature is not None and effective_temperature <= 12:
-            return 23.0
-        return 22.5
+            return target + 0.5
+        return target
+    target = tuning.setpoint_spar
     if effective_temperature is not None and effective_temperature <= 12:
-        return 21.5
-    return 21.0
+        return target + 0.5
+    return target
 
 
-def policy_visibility_snapshot(month: int, effective_temperature: float | None) -> dict[str, object]:
-    thresholds = threshold_for_month(month)
+def policy_visibility_snapshot(
+    month: int,
+    effective_temperature: float | None,
+    tuning: PolicyTuning | None = None,
+) -> dict[str, object]:
+    tuning = tuning or default_policy_tuning()
+    band_key = monthly_band(month)
+    thresholds = threshold_for_month_config(month, tuning)
+    band_fields = (
+        "off_threshold",
+        "comfort_threshold",
+        "boost_threshold",
+        "comfort_disabled",
+        "boost_disabled",
+    )
     return {
         "month": month,
-        "active_month_band": monthly_band(month),
+        "active_month_band": band_key,
         "thresholds": thresholds,
         "comfort_structurally_disabled": thresholds["comfort"] is None,
-        "boost_structurally_disabled": thresholds["boost"] is None or month in BOOST_DISABLED_MONTHS,
+        "boost_structurally_disabled": thresholds["boost"] is None,
         "setpoints": {
-            "off": setpoint_for("off", effective_temperature),
-            "spar": setpoint_for("spar", effective_temperature),
-            "komfort": setpoint_for("komfort", effective_temperature),
-            "boost": setpoint_for("boost", effective_temperature),
+            "off": setpoint_for("off", effective_temperature, tuning),
+            "spar": setpoint_for("spar", effective_temperature, tuning),
+            "komfort": setpoint_for("komfort", effective_temperature, tuning),
+            "boost": setpoint_for("boost", effective_temperature, tuning),
         },
         "hysteresis": {
-            "boost_activation_delta": BOOST_ACTIVATION_DELTA,
+            "boost_activation_delta": tuning.boost_activation_delta,
+            "boost_delta": tuning.boost_delta,
         },
         "effective_temperature_parameters": {
-            "floor_slab_tau": FLOOR_SLAB_TAU,
-            "lux_bonus_max": LUX_BONUS_MAX,
-            "lux_reference": LUX_REFERENCE,
-            "feels_like_damping": FEELS_LIKE_DAMPING,
-            "forecast_weight": FORECAST_WEIGHT,
+            "floor_slab_tau": tuning.floor_slab_tau,
+            "lux_bonus_max": tuning.lux_bonus_max,
+            "lux_reference": tuning.lux_reference,
+            "feels_like_damping": tuning.feels_like_damping,
+            "forecast_weight": tuning.forecast_weight,
         },
+        "sources": {
+            "setpoints": {
+                "off": tuning.source_for(OPT_SETPOINT_OFF),
+                "spar": tuning.source_for(OPT_SETPOINT_SPAR),
+                "komfort": tuning.source_for(OPT_SETPOINT_KOMFORT),
+                "boost": tuning.source_for(OPT_SETPOINT_BOOST),
+            },
+            "hysteresis": {
+                "boost_activation_delta": tuning.source_for(OPT_BOOST_ACTIVATION_DELTA),
+                "boost_delta": tuning.source_for(OPT_BOOST_DELTA),
+            },
+            "effective_temperature_parameters": {
+                "floor_slab_tau": tuning.source_for(OPT_FLOOR_SLAB_TAU),
+                "lux_bonus_max": tuning.source_for(OPT_LUX_BONUS_MAX),
+                "lux_reference": tuning.source_for(OPT_LUX_REFERENCE),
+                "feels_like_damping": tuning.source_for(OPT_FEELS_LIKE_DAMPING),
+                "forecast_weight": tuning.source_for(OPT_FORECAST_WEIGHT),
+            },
+            "active_threshold_band": {
+                field_name: tuning.source_for(threshold_option_key(band_key, field_name))
+                for field_name in band_fields
+            },
+        },
+        "threshold_bands": {
+            key: {
+                **band.as_dict(),
+                "active_thresholds": band.active_thresholds(),
+                "sources": {
+                    field_name: tuning.source_for(threshold_option_key(key, field_name))
+                    for field_name in band_fields
+                },
+            }
+            for key, band in tuning.threshold_bands.items()
+        },
+        "tuning_signature": tuning.signature,
     }
 
 
@@ -181,10 +467,11 @@ def decide_zone(
     effective: EffectiveTemperatureBreakdown,
     now: datetime,
     *,
-    boost_activation_delta: float = BOOST_ACTIVATION_DELTA,
+    tuning: PolicyTuning | None = None,
 ) -> ZonePlan:
     path: list[str] = []
     blockers: list[str] = []
+    tuning = tuning or default_policy_tuning()
     month = now.month
     teff = effective.effective_temperature
 
@@ -237,7 +524,7 @@ def decide_zone(
             reason = "free_time_early_night_holds_comfort"
             path.append(reason)
         else:
-            thresholds = threshold_for_month(month)
+            thresholds = threshold_for_month_config(month, tuning)
             if teff is None:
                 profile = "spar"
                 reason = "effective_temperature_missing_spar"
@@ -254,14 +541,13 @@ def decide_zone(
                 profile = "komfort"
                 reason = "effective_temperature_in_comfort_band"
                 boost_threshold = thresholds["boost"]
-                comfort_target = setpoint_for("komfort", teff)
+                comfort_target = setpoint_for("komfort", teff, tuning)
                 room_temp = zone_input.room_temperature
                 if (
                     boost_threshold is not None
-                    and month not in BOOST_DISABLED_MONTHS
                     and teff <= float(boost_threshold)
                     and room_temp is not None
-                    and room_temp <= comfort_target - boost_activation_delta
+                    and room_temp <= comfort_target - tuning.boost_activation_delta
                 ):
                     profile = "boost"
                     reason = "boost_threshold_and_room_delta"
@@ -272,7 +558,7 @@ def decide_zone(
             reason = "presence_preheat_caps_to_spar"
             path.append(reason)
 
-    target = setpoint_for(profile, teff)
+    target = setpoint_for(profile, teff, tuning)
     if not zone_input.thermostat_entity_id:
         blockers.append("thermostat_entity_missing")
 
@@ -298,6 +584,7 @@ def decide_zone(
         hysteresis_state=profile,
         last_calculated=now.isoformat(),
         apply_block_reason=", ".join(blockers) if blockers else "none",
+        policy_config_hash=tuning.signature,
     )
 
 

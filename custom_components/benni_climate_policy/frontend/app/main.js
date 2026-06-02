@@ -210,6 +210,10 @@ function kv(label, value, cls = "") {
   return `<div class="kv"><div class="k">${esc(label)}</div><div class="v ${cls}">${esc(asText(value))}</div></div>`;
 }
 
+function kvSource(label, value, source, cls = "") {
+  return `<div class="kv"><div class="k">${esc(label)}<br><span class="muted">${esc(source || "default")}</span></div><div class="v ${cls}">${esc(asText(value))}</div></div>`;
+}
+
 function metric(label, value, entityId = "") {
   return `<div class="metric"><div class="label">${esc(label)}</div><div class="value">${esc(asText(value))}</div>${entityId ? `<div class="entity">${esc(entityId)}</div>` : ""}</div>`;
 }
@@ -324,33 +328,47 @@ function renderThresholds(hass) {
   const hysteresis = data.hysteresis || {};
   const teffParams = data.effective_temperature_parameters || {};
   const cooldowns = data.apply_cooldowns || {};
+  const sources = data.sources || {};
+  const bandSources = sources.active_threshold_band || {};
+  const setpointSources = sources.setpoints || {};
+  const hysteresisSources = sources.hysteresis || {};
+  const teffSources = sources.effective_temperature_parameters || {};
+  const bands = data.threshold_bands || {};
+  const bandRows = Object.entries(bands).map(([key, band]) => `<tr>
+    <td class="mono">${esc(key)}</td>
+    <td>${esc(asText((band.months || []).join(", ")))}</td>
+    <td>${esc(asText(band.off_threshold))}<br><span class="muted">${esc(band.sources?.off_threshold || "default")}</span></td>
+    <td>${esc(asText(band.comfort_disabled ? "disabled" : band.comfort_threshold))}<br><span class="muted">${esc(band.sources?.comfort_threshold || band.sources?.comfort_disabled || "default")}</span></td>
+    <td>${esc(asText(band.boost_disabled ? "disabled" : band.boost_threshold))}<br><span class="muted">${esc(band.sources?.boost_threshold || band.sources?.boost_disabled || "default")}</span></td>
+  </tr>`).join("");
   return `<div class="grid cols-3">
     ${metric("Aktueller Monat", data.month ?? "missing")}
     ${metric("Aktives Monatsband", data.active_month_band ?? "missing")}
     ${metric("Komfort strukturell deaktiviert", data.comfort_structurally_disabled ?? "missing")}
     ${metric("Boost strukturell deaktiviert", data.boost_structurally_disabled ?? "missing")}
   </div>
+  <div class="section notice">Editierbar über Integrationsoptionen. Dieses Panel zeigt nur die aktuell aktiven gespeicherten Werte.</div>
   <div class="section grid cols-2">
     <div class="card">
       <h2>${icon("mdi:thermometer-chevron-down")}Schwellenwerte</h2>
-      ${kv("Off-Grenze", th.off ?? "missing")}
-      ${kv("Komfort-Grenze", th.comfort ?? "disabled")}
-      ${kv("Boost-Grenze", th.boost ?? "disabled")}
+      ${kvSource("Off-Grenze", th.off ?? "missing", bandSources.off_threshold)}
+      ${kvSource("Komfort-Grenze", th.comfort ?? "disabled", bandSources.comfort_threshold || bandSources.comfort_disabled)}
+      ${kvSource("Boost-Grenze", th.boost ?? "disabled", bandSources.boost_threshold || bandSources.boost_disabled)}
     </div>
     <div class="card">
       <h2>${icon("mdi:thermostat")}Setpoints</h2>
-      ${kv("off", setpoints.off ?? "missing")}
-      ${kv("spar", setpoints.spar ?? "missing")}
-      ${kv("komfort", setpoints.komfort ?? "missing")}
-      ${kv("boost", setpoints.boost ?? "missing")}
+      ${kvSource("off", setpoints.off ?? "missing", setpointSources.off)}
+      ${kvSource("spar", setpoints.spar ?? "missing", setpointSources.spar)}
+      ${kvSource("komfort", setpoints.komfort ?? "missing", setpointSources.komfort)}
+      ${kvSource("boost", setpoints.boost ?? "missing", setpointSources.boost)}
     </div>
     <div class="card">
       <h2>${icon("mdi:chart-bell-curve-cumulative")}Hysterese-Parameter</h2>
-      ${Object.entries(hysteresis).map(([k, v]) => kv(k, v)).join("") || kv("hysteresis", "missing")}
+      ${Object.entries(hysteresis).map(([k, v]) => kvSource(k, v, hysteresisSources[k])).join("") || kv("hysteresis", "missing")}
     </div>
     <div class="card">
       <h2>${icon("mdi:tune")}Effective-Temperature-Parameter</h2>
-      ${Object.entries(teffParams).map(([k, v]) => kv(k, v)).join("") || kv("effective temperature parameters", "missing")}
+      ${Object.entries(teffParams).map(([k, v]) => kvSource(k, v, teffSources[k])).join("") || kv("effective temperature parameters", "missing")}
     </div>
     <div class="card">
       <h2>${icon("mdi:timer-sand")}Apply-Cooldowns</h2>
@@ -358,6 +376,14 @@ function renderThresholds(hass) {
       ${kv("startup_block_seconds", cooldowns.startup_block_seconds ?? "missing")}
       ${kv("startup_ready", cooldowns.startup_ready ?? "missing")}
       ${kv("last_apply_at", cooldowns.last_apply_at ?? {})}
+    </div>
+  </div>
+  <div class="section card">
+    <h2>${icon("mdi:calendar-range")}Monatsbänder</h2>
+    <div class="table-wrap">
+      <table><thead><tr><th>Band</th><th>Monate</th><th>Off</th><th>Komfort</th><th>Boost</th></tr></thead><tbody>
+        ${bandRows || `<tr><td colspan="5" class="muted">missing</td></tr>`}
+      </tbody></table>
     </div>
   </div>`;
 }

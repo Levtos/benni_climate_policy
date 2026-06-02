@@ -15,6 +15,7 @@ from homeassistant.util import dt as dt_util
 from .apply_engine import ApplyEngine, ApplyGateState
 from .const import (
     CONF_APPLY_ACTIVE,
+    CONF_APPLY_COOLDOWN_SECONDS,
     CONF_BATH_FAN,
     CONF_COOLDOWN_SECONDS,
     CONF_FORECAST_TEMPERATURE,
@@ -51,7 +52,8 @@ from .models import (
     ZoneInput,
     ZonePlan,
 )
-from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_visibility_snapshot
+from .options import apply_cooldown_seconds_from_config
+from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_tuning_from_options, policy_visibility_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,11 +124,15 @@ class ClimatePolicyCoordinator:
 
     @property
     def cooldown_seconds(self) -> int:
-        return int(self.config.get(CONF_COOLDOWN_SECONDS, DEFAULT_COOLDOWN_SECONDS))
+        return apply_cooldown_seconds_from_config(self.config)
 
     @property
     def startup_block_seconds(self) -> int:
         return int(self.config.get(CONF_STARTUP_BLOCK_SECONDS, DEFAULT_STARTUP_BLOCK_SECONDS))
+
+    @property
+    def policy_tuning(self):
+        return policy_tuning_from_options(self.entry.options)
 
     @property
     def startup_ready(self) -> bool:
@@ -256,6 +262,7 @@ class ClimatePolicyCoordinator:
 
     async def async_evaluate(self, *, auto_apply: bool = False) -> ClimateDecision:
         now = dt_util.now()
+        tuning = self.policy_tuning
         context = ContextResolver(self.hass, self.config).resolve()
         effective = effective_outdoor_temperature(
             EffectiveTemperatureInput(
@@ -266,11 +273,16 @@ class ClimatePolicyCoordinator:
                 outdoor_lux=self._float_state(CONF_OUTDOOR_LUX),
                 sun_elevation=self._sun_elevation(),
                 month=now.month,
-            )
+            ),
+            floor_slab_tau=tuning.floor_slab_tau,
+            lux_bonus_max=tuning.lux_bonus_max,
+            lux_reference=tuning.lux_reference,
+            feels_like_damping=tuning.feels_like_damping,
+            forecast_weight=tuning.forecast_weight,
         )
         plans = {
-            ZONE_LIVING: decide_zone(self._zone_input(ZONE_LIVING), context, effective, now),
-            ZONE_KITCHEN: decide_zone(self._zone_input(ZONE_KITCHEN), context, effective, now),
+            ZONE_LIVING: decide_zone(self._zone_input(ZONE_LIVING), context, effective, now, tuning=tuning),
+            ZONE_KITCHEN: decide_zone(self._zone_input(ZONE_KITCHEN), context, effective, now, tuning=tuning),
         }
         self.decision = ClimateDecision(context, effective, plans, now, self.system_ready)
         self._notify()
@@ -374,7 +386,7 @@ class ClimatePolicyCoordinator:
             if self.decision
             else None
         )
-        thresholds = policy_visibility_snapshot(now.month, effective_temperature)
+        thresholds = policy_visibility_snapshot(now.month, effective_temperature, self.policy_tuning)
         return {
             "system_ready": self.system_ready,
             "apply_active": self.apply_active,

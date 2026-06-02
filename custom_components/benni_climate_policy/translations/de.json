@@ -66,6 +66,7 @@
         "data": {
           "apply_active": "Auto-Apply aktiv",
           "startup_block_seconds": "Startup-Ruhezeit",
+          "apply_cooldown_seconds": "Apply-Cooldown",
           "cooldown_seconds": "Apply-Cooldown"
         }
       }
@@ -84,6 +85,9 @@
           "zones": "Zonen & Thermostate",
           "environment": "Wetter & effektive Aussentemperatur",
           "apply": "Apply Engine",
+          "tuning_core": "Core Tuning",
+          "tuning_effective": "Effektive Aussentemperatur",
+          "tuning_thresholds": "Monats-Schwellwerte",
           "windows": "Erweiterte Optionen",
           "diagnostics": "Diagnose"
         }
@@ -152,7 +156,77 @@
         "data": {
           "apply_active": "Auto-Apply aktiv",
           "startup_block_seconds": "Startup-Ruhezeit",
+          "apply_cooldown_seconds": "Apply-Cooldown",
           "cooldown_seconds": "Apply-Cooldown"
+        }
+      },
+      "tuning_core": {
+        "title": "Core Tuning",
+        "description": "Passe zentrale Setpoints und Boost-Parameter fuer Wohnzimmer und Kueche an.",
+        "data": {
+          "setpoint_off": "Off-Setpoint",
+          "setpoint_spar": "Spar-Setpoint",
+          "setpoint_komfort": "Komfort-Setpoint",
+          "setpoint_boost": "Boost-Setpoint",
+          "boost_delta": "Boost-Delta",
+          "boost_activation_delta": "Boost-Aktivierungsdelta zum Raum"
+        }
+      },
+      "tuning_effective": {
+        "title": "Effektive Aussentemperatur",
+        "description": "Passe Parameter fuer die Berechnung der effektiven Aussentemperatur an.",
+        "data": {
+          "floor_slab_tau": "Bodenplatten-Tau",
+          "lux_bonus_max": "Maximaler Lux-Bonus",
+          "lux_reference": "Lux-Referenz",
+          "feels_like_damping": "Daempfung gefuehlte Temperatur",
+          "forecast_weight": "Forecast-Gewichtung"
+        }
+      },
+      "tuning_thresholds": {
+        "title": "Monats-Schwellwerte",
+        "description": "Passe Monatsbaender an. Deaktivierte Komfort- oder Boost-Grenzen werden vollstaendig angezeigt, aber von der Policy ignoriert.",
+        "data": {
+          "threshold_winter_off_threshold": "Winter Off-Grenze",
+          "threshold_winter_comfort_threshold": "Winter Komfort-Grenze",
+          "threshold_winter_boost_threshold": "Winter Boost-Grenze",
+          "threshold_winter_comfort_disabled": "Winter Komfort deaktiviert",
+          "threshold_winter_boost_disabled": "Winter Boost deaktiviert",
+          "threshold_late_winter_off_threshold": "Spaetwinter Off-Grenze",
+          "threshold_late_winter_comfort_threshold": "Spaetwinter Komfort-Grenze",
+          "threshold_late_winter_boost_threshold": "Spaetwinter Boost-Grenze",
+          "threshold_late_winter_comfort_disabled": "Spaetwinter Komfort deaktiviert",
+          "threshold_late_winter_boost_disabled": "Spaetwinter Boost deaktiviert",
+          "threshold_spring_off_threshold": "Fruehling Off-Grenze",
+          "threshold_spring_comfort_threshold": "Fruehling Komfort-Grenze",
+          "threshold_spring_boost_threshold": "Fruehling Boost-Grenze",
+          "threshold_spring_comfort_disabled": "Fruehling Komfort deaktiviert",
+          "threshold_spring_boost_disabled": "Fruehling Boost deaktiviert",
+          "threshold_late_spring_off_threshold": "Spaetfruehling Off-Grenze",
+          "threshold_late_spring_comfort_threshold": "Spaetfruehling Komfort-Grenze",
+          "threshold_late_spring_boost_threshold": "Spaetfruehling Boost-Grenze",
+          "threshold_late_spring_comfort_disabled": "Spaetfruehling Komfort deaktiviert",
+          "threshold_late_spring_boost_disabled": "Spaetfruehling Boost deaktiviert",
+          "threshold_summer_off_threshold": "Sommer Off-Grenze",
+          "threshold_summer_comfort_threshold": "Sommer Komfort-Grenze",
+          "threshold_summer_boost_threshold": "Sommer Boost-Grenze",
+          "threshold_summer_comfort_disabled": "Sommer Komfort deaktiviert",
+          "threshold_summer_boost_disabled": "Sommer Boost deaktiviert",
+          "threshold_early_autumn_off_threshold": "Fruehherbst Off-Grenze",
+          "threshold_early_autumn_comfort_threshold": "Fruehherbst Komfort-Grenze",
+          "threshold_early_autumn_boost_threshold": "Fruehherbst Boost-Grenze",
+          "threshold_early_autumn_comfort_disabled": "Fruehherbst Komfort deaktiviert",
+          "threshold_early_autumn_boost_disabled": "Fruehherbst Boost deaktiviert",
+          "threshold_autumn_off_threshold": "Herbst Off-Grenze",
+          "threshold_autumn_comfort_threshold": "Herbst Komfort-Grenze",
+          "threshold_autumn_boost_threshold": "Herbst Boost-Grenze",
+          "threshold_autumn_comfort_disabled": "Herbst Komfort deaktiviert",
+          "threshold_autumn_boost_disabled": "Herbst Boost deaktiviert",
+          "threshold_late_autumn_off_threshold": "Spaetherbst Off-Grenze",
+          "threshold_late_autumn_comfort_threshold": "Spaetherbst Komfort-Grenze",
+          "threshold_late_autumn_boost_threshold": "Spaetherbst Boost-Grenze",
+          "threshold_late_autumn_comfort_disabled": "Spaetherbst Komfort deaktiviert",
+          "threshold_late_autumn_boost_disabled": "Spaetherbst Boost deaktiviert"
         }
       },
       "diagnostics": {

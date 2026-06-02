@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from custom_components.benni_climate_policy.apply_engine import ApplyEngine, ApplyGateState, evaluate_apply_gate
+from custom_components.benni_climate_policy.options import apply_cooldown_seconds_from_config
 from custom_components.benni_climate_policy.models import ZonePlan
 
 
@@ -124,4 +125,10 @@ def test_dry_run_reports_planned_calls_without_writing():
     assert result.details["planned_hvac_mode"] == "heat"
     assert result.details["planned_temperature"] == 21.0
     assert hass.services.calls == []
+
+
+def test_apply_cooldown_option_is_used():
+    assert apply_cooldown_seconds_from_config({"apply_cooldown_seconds": 120}) == 120
+    assert apply_cooldown_seconds_from_config({"apply_cooldown_seconds": 0}) == 600
+    assert apply_cooldown_seconds_from_config({"cooldown_seconds": 300}) == 300
 

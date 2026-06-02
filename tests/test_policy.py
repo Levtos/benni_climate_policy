@@ -9,7 +9,16 @@ from custom_components.benni_climate_policy.models import (
     WindowState,
     ZoneInput,
 )
-from custom_components.benni_climate_policy.policy import decide_zone, policy_visibility_snapshot
+from custom_components.benni_climate_policy.policy import (
+    OPT_LUX_REFERENCE,
+    OPT_SETPOINT_SPAR,
+    default_policy_tuning,
+    decide_zone,
+    policy_tuning_from_options,
+    policy_visibility_snapshot,
+    setpoint_for,
+    threshold_option_key,
+)
 
 
 def sv(value):
@@ -128,4 +137,52 @@ def test_policy_visibility_snapshot_uses_policy_thresholds():
     assert snapshot["comfort_structurally_disabled"] is True
     assert snapshot["boost_structurally_disabled"] is True
     assert snapshot["setpoints"]["spar"] == 21.0
+
+
+def test_policy_tuning_defaults_keep_existing_behavior():
+    tuning = default_policy_tuning()
+    assert setpoint_for("off", 0, tuning) == 10.0
+    assert setpoint_for("spar", 18, tuning) == 21.0
+    assert setpoint_for("spar", 10, tuning) == 21.5
+    assert setpoint_for("komfort", 18, tuning) == 22.5
+    assert setpoint_for("komfort", 10, tuning) == 23.0
+    assert setpoint_for("komfort", 0, tuning) == 23.5
+    assert setpoint_for("boost", 18, tuning) == 24.5
+
+
+def test_policy_tuning_options_override_setpoints():
+    tuning = policy_tuning_from_options({OPT_SETPOINT_SPAR: 20.0})
+    assert setpoint_for("spar", 18, tuning) == 20.0
+    assert tuning.source_for(OPT_SETPOINT_SPAR) == "user option"
+
+
+def test_summer_off_threshold_option_changes_decision():
+    default_plan = decide_zone(zone(), ctx(), eff(20), datetime(2026, 7, 1, 12), tuning=default_policy_tuning())
+    tuned = policy_tuning_from_options({threshold_option_key("summer", "off_threshold"): 21.0})
+    tuned_plan = decide_zone(zone(), ctx(), eff(20), datetime(2026, 7, 1, 12), tuning=tuned)
+
+    assert default_plan.profile == "off"
+    assert tuned_plan.profile == "spar"
+
+
+def test_plan_hash_changes_when_relevant_tuning_changes():
+    base = decide_zone(zone(), ctx(), eff(18), datetime(2026, 5, 1, 12), tuning=default_policy_tuning())
+    tuned = decide_zone(
+        zone(),
+        ctx(),
+        eff(18),
+        datetime(2026, 5, 1, 12),
+        tuning=policy_tuning_from_options({OPT_SETPOINT_SPAR: 20.0}),
+    )
+
+    assert base.plan_hash != tuned.plan_hash
+    assert base.policy_config_hash != tuned.policy_config_hash
+
+
+def test_invalid_tuning_options_fall_back_to_defaults():
+    tuning = policy_tuning_from_options({OPT_LUX_REFERENCE: 0, OPT_SETPOINT_SPAR: "bad"})
+    assert tuning.lux_reference == 30000.0
+    assert tuning.setpoint_spar == 21.0
+    assert tuning.source_for(OPT_LUX_REFERENCE) == "invalid_fallback_default"
+    assert tuning.source_for(OPT_SETPOINT_SPAR) == "invalid_fallback_default"
 

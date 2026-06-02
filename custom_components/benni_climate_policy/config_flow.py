@@ -12,6 +12,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_APPLY_ACTIVE,
+    CONF_APPLY_COOLDOWN_SECONDS,
     CONF_BATH_FAN,
     CONF_CONTEXT_ACTIVITY,
     CONF_CONTEXT_BIO,
@@ -51,12 +52,33 @@ from .const import (
     ZONE_KITCHEN,
     ZONE_LIVING,
 )
+from .policy import (
+    DEFAULT_THRESHOLD_BANDS,
+    OPT_BOOST_ACTIVATION_DELTA,
+    OPT_BOOST_DELTA,
+    OPT_FEELS_LIKE_DAMPING,
+    OPT_FLOOR_SLAB_TAU,
+    OPT_FORECAST_WEIGHT,
+    OPT_LUX_BONUS_MAX,
+    OPT_LUX_REFERENCE,
+    OPT_SETPOINT_BOOST,
+    OPT_SETPOINT_KOMFORT,
+    OPT_SETPOINT_OFF,
+    OPT_SETPOINT_SPAR,
+    default_policy_tuning,
+    threshold_option_key,
+)
 
 ENTITY = selector.EntitySelector(selector.EntitySelectorConfig())
 CLIMATE = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
 SWITCH = selector.EntitySelector(selector.EntitySelectorConfig(domain="switch"))
 BOOL = selector.BooleanSelector()
 INT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=3600, step=10, mode="box"))
+POS_INT = selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=86400, step=10, mode="box"))
+TEMP_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=30, step=0.5, mode="box"))
+THRESHOLD_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=35, step=0.5, mode="box"))
+POS_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=100000, step=0.1, mode="box"))
+WEIGHT_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.05, mode="box"))
 
 STEP_CONTEXT = (
     CONF_CONTEXT_ACTIVITY,
@@ -100,7 +122,33 @@ STEP_WINDOWS = (
     CONF_KITCHEN_PATIO_OPEN,
     CONF_KITCHEN_PATIO_TILT,
 )
-STEP_APPLY = (CONF_APPLY_ACTIVE, CONF_STARTUP_BLOCK_SECONDS, CONF_COOLDOWN_SECONDS)
+STEP_APPLY = (CONF_APPLY_ACTIVE, CONF_STARTUP_BLOCK_SECONDS, CONF_APPLY_COOLDOWN_SECONDS)
+STEP_TUNING_CORE = (
+    OPT_SETPOINT_OFF,
+    OPT_SETPOINT_SPAR,
+    OPT_SETPOINT_KOMFORT,
+    OPT_SETPOINT_BOOST,
+    OPT_BOOST_DELTA,
+    OPT_BOOST_ACTIVATION_DELTA,
+)
+STEP_TUNING_EFFECTIVE = (
+    OPT_FLOOR_SLAB_TAU,
+    OPT_LUX_BONUS_MAX,
+    OPT_LUX_REFERENCE,
+    OPT_FEELS_LIKE_DAMPING,
+    OPT_FORECAST_WEIGHT,
+)
+STEP_TUNING_THRESHOLDS = tuple(
+    threshold_option_key(band, field)
+    for band in DEFAULT_THRESHOLD_BANDS
+    for field in (
+        "off_threshold",
+        "comfort_threshold",
+        "boost_threshold",
+        "comfort_disabled",
+        "boost_disabled",
+    )
+)
 
 SELECTORS: dict[str, Any] = {
     key: ENTITY
@@ -124,6 +172,31 @@ SELECTORS.update({
     CONF_APPLY_ACTIVE: BOOL,
     CONF_STARTUP_BLOCK_SECONDS: INT,
     CONF_COOLDOWN_SECONDS: INT,
+    CONF_APPLY_COOLDOWN_SECONDS: POS_INT,
+})
+SELECTORS.update({
+    OPT_SETPOINT_OFF: TEMP_FLOAT,
+    OPT_SETPOINT_SPAR: TEMP_FLOAT,
+    OPT_SETPOINT_KOMFORT: TEMP_FLOAT,
+    OPT_SETPOINT_BOOST: TEMP_FLOAT,
+    OPT_BOOST_DELTA: selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=5, step=0.1, mode="box")),
+    OPT_BOOST_ACTIVATION_DELTA: selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.1, mode="box")),
+    OPT_FLOOR_SLAB_TAU: POS_FLOAT,
+    OPT_LUX_BONUS_MAX: selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.1, mode="box")),
+    OPT_LUX_REFERENCE: selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=100000, step=100, mode="box")),
+    OPT_FEELS_LIKE_DAMPING: WEIGHT_FLOAT,
+    OPT_FORECAST_WEIGHT: WEIGHT_FLOAT,
+})
+SELECTORS.update({
+    threshold_option_key(band, field): BOOL if field.endswith("_disabled") else THRESHOLD_FLOAT
+    for band in DEFAULT_THRESHOLD_BANDS
+    for field in (
+        "off_threshold",
+        "comfort_threshold",
+        "boost_threshold",
+        "comfort_disabled",
+        "boost_disabled",
+    )
 })
 
 REQUIRED_KEYS = {
@@ -138,8 +211,33 @@ def _exists(hass, entity_id: str | None) -> bool:
 
 def _defaults(hass, data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     out = dict(data)
+    tuning = default_policy_tuning()
+    tuning_defaults = {
+        OPT_SETPOINT_OFF: tuning.setpoint_off,
+        OPT_SETPOINT_SPAR: tuning.setpoint_spar,
+        OPT_SETPOINT_KOMFORT: tuning.setpoint_komfort,
+        OPT_SETPOINT_BOOST: tuning.setpoint_boost,
+        OPT_BOOST_DELTA: tuning.boost_delta,
+        OPT_BOOST_ACTIVATION_DELTA: tuning.boost_activation_delta,
+        OPT_FLOOR_SLAB_TAU: tuning.floor_slab_tau,
+        OPT_LUX_BONUS_MAX: tuning.lux_bonus_max,
+        OPT_LUX_REFERENCE: tuning.lux_reference,
+        OPT_FEELS_LIKE_DAMPING: tuning.feels_like_damping,
+        OPT_FORECAST_WEIGHT: tuning.forecast_weight,
+    }
+    for band, config in tuning.threshold_bands.items():
+        tuning_defaults.update({
+            threshold_option_key(band, "off_threshold"): config.off_threshold,
+            threshold_option_key(band, "comfort_threshold"): config.comfort_threshold,
+            threshold_option_key(band, "boost_threshold"): config.boost_threshold,
+            threshold_option_key(band, "comfort_disabled"): config.comfort_disabled,
+            threshold_option_key(band, "boost_disabled"): config.boost_disabled,
+        })
     for key in keys:
         if key in out:
+            continue
+        if key in tuning_defaults:
+            out[key] = tuning_defaults[key]
             continue
         preset = PRESET.get(key)
         if _exists(hass, preset):
@@ -147,6 +245,7 @@ def _defaults(hass, data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, An
     out.setdefault(CONF_APPLY_ACTIVE, DEFAULT_APPLY_ACTIVE)
     out.setdefault(CONF_STARTUP_BLOCK_SECONDS, DEFAULT_STARTUP_BLOCK_SECONDS)
     out.setdefault(CONF_COOLDOWN_SECONDS, DEFAULT_COOLDOWN_SECONDS)
+    out.setdefault(CONF_APPLY_COOLDOWN_SECONDS, out.get(CONF_COOLDOWN_SECONDS, DEFAULT_COOLDOWN_SECONDS))
     return out
 
 
@@ -155,7 +254,12 @@ def _schema(hass, data: dict[str, Any], keys: tuple[str, ...]) -> vol.Schema:
     fields: dict[Any, Any] = {}
     for key in keys:
         marker = vol.Required(key, default=defaults[key]) if key in defaults else vol.Required(key)
-        if key not in REQUIRED_KEYS and key not in (CONF_APPLY_ACTIVE, CONF_STARTUP_BLOCK_SECONDS, CONF_COOLDOWN_SECONDS):
+        if key not in REQUIRED_KEYS and key not in (
+            CONF_APPLY_ACTIVE,
+            CONF_STARTUP_BLOCK_SECONDS,
+            CONF_COOLDOWN_SECONDS,
+            CONF_APPLY_COOLDOWN_SECONDS,
+        ):
             marker = vol.Optional(key, default=defaults[key]) if key in defaults else vol.Optional(key)
         fields[marker] = SELECTORS[key]
     return vol.Schema(fields)
@@ -214,7 +318,17 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["context", "zones", "environment", "apply", "windows", "diagnostics"],
+            menu_options=[
+                "context",
+                "zones",
+                "environment",
+                "tuning_core",
+                "tuning_effective",
+                "tuning_thresholds",
+                "apply",
+                "windows",
+                "diagnostics",
+            ],
         )
 
     def _edit(self, step_id: str, keys: tuple[str, ...], user_input: dict[str, Any] | None) -> FlowResult:
@@ -237,6 +351,15 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
 
     async def async_step_apply(self, user_input=None):
         return self._edit("apply", STEP_APPLY, user_input)
+
+    async def async_step_tuning_core(self, user_input=None):
+        return self._edit("tuning_core", STEP_TUNING_CORE, user_input)
+
+    async def async_step_tuning_effective(self, user_input=None):
+        return self._edit("tuning_effective", STEP_TUNING_EFFECTIVE, user_input)
+
+    async def async_step_tuning_thresholds(self, user_input=None):
+        return self._edit("tuning_thresholds", STEP_TUNING_THRESHOLDS, user_input)
 
     async def async_step_diagnostics(self, user_input=None):
         if user_input is not None:

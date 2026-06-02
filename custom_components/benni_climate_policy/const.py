@@ -5,6 +5,7 @@ DOMAIN = "benni_climate_policy"
 DATA_COORDINATOR = "coordinator"
 
 CONF_APPLY_ACTIVE = "apply_active"
+CONF_APPLY_COOLDOWN_SECONDS = "apply_cooldown_seconds"
 CONF_STARTUP_BLOCK_SECONDS = "startup_block_seconds"
 CONF_COOLDOWN_SECONDS = "cooldown_seconds"
 
