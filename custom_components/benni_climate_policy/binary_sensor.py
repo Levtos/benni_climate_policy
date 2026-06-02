@@ -54,6 +54,7 @@ class ApplyReadyBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
             "apply_active": self.coord.apply_active,
             "system_ready": self.coord.system_ready,
             "startup_ready": self.coord.startup_ready,
+            "manual_apply_possible": self.coord.manual_apply_possible,
         }
 
 

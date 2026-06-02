@@ -15,6 +15,12 @@ from .models import (
 
 SUMMER_MONTHS = {6, 7, 8}
 BOOST_DISABLED_MONTHS = {5, 6, 7, 8, 9}
+FLOOR_SLAB_TAU = 8.0
+LUX_BONUS_MAX = 3.0
+LUX_REFERENCE = 30000.0
+FEELS_LIKE_DAMPING = 0.5
+FORECAST_WEIGHT = 0.3
+BOOST_ACTIVATION_DELTA = 1.5
 
 
 def _to_bool(value: object) -> bool:
@@ -31,11 +37,11 @@ def _context_value(ctx: ClimateContextSnapshot, field: str, default: str | None 
 def effective_outdoor_temperature(
     inp: EffectiveTemperatureInput,
     *,
-    floor_slab_tau: float = 8.0,
-    lux_bonus_max: float = 3.0,
-    lux_reference: float = 30000.0,
-    feels_like_damping: float = 0.5,
-    forecast_weight: float = 0.3,
+    floor_slab_tau: float = FLOOR_SLAB_TAU,
+    lux_bonus_max: float = LUX_BONUS_MAX,
+    lux_reference: float = LUX_REFERENCE,
+    feels_like_damping: float = FEELS_LIKE_DAMPING,
+    forecast_weight: float = FORECAST_WEIGHT,
 ) -> EffectiveTemperatureBreakdown:
     """Calculate the Opus-style effective outdoor temperature."""
     real = inp.real_temperature
@@ -114,6 +120,18 @@ def threshold_for_month(month: int) -> dict[str, float | None]:
     return {"off": 16.0, "comfort": 11.5, "boost": 6.0}
 
 
+def monthly_band(month: int) -> str:
+    if month in (12, 1, 2):
+        return "winter"
+    if month in (3, 4):
+        return "spring_transition"
+    if month in (5, 9):
+        return "shoulder_no_boost"
+    if month in SUMMER_MONTHS:
+        return "summer"
+    return "heating_transition"
+
+
 def setpoint_for(profile: str, effective_temperature: float | None) -> float:
     if profile == "off":
         return 10.0
@@ -130,13 +148,40 @@ def setpoint_for(profile: str, effective_temperature: float | None) -> float:
     return 21.0
 
 
+def policy_visibility_snapshot(month: int, effective_temperature: float | None) -> dict[str, object]:
+    thresholds = threshold_for_month(month)
+    return {
+        "month": month,
+        "active_month_band": monthly_band(month),
+        "thresholds": thresholds,
+        "comfort_structurally_disabled": thresholds["comfort"] is None,
+        "boost_structurally_disabled": thresholds["boost"] is None or month in BOOST_DISABLED_MONTHS,
+        "setpoints": {
+            "off": setpoint_for("off", effective_temperature),
+            "spar": setpoint_for("spar", effective_temperature),
+            "komfort": setpoint_for("komfort", effective_temperature),
+            "boost": setpoint_for("boost", effective_temperature),
+        },
+        "hysteresis": {
+            "boost_activation_delta": BOOST_ACTIVATION_DELTA,
+        },
+        "effective_temperature_parameters": {
+            "floor_slab_tau": FLOOR_SLAB_TAU,
+            "lux_bonus_max": LUX_BONUS_MAX,
+            "lux_reference": LUX_REFERENCE,
+            "feels_like_damping": FEELS_LIKE_DAMPING,
+            "forecast_weight": FORECAST_WEIGHT,
+        },
+    }
+
+
 def decide_zone(
     zone_input: ZoneInput,
     ctx: ClimateContextSnapshot,
     effective: EffectiveTemperatureBreakdown,
     now: datetime,
     *,
-    boost_activation_delta: float = 1.5,
+    boost_activation_delta: float = BOOST_ACTIVATION_DELTA,
 ) -> ZonePlan:
     path: list[str] = []
     blockers: list[str] = []

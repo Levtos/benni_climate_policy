@@ -70,6 +70,7 @@ class ApplyStatusSensor(ClimatePolicyEntity, SensorEntity):
             "result": result or None,
             "apply_active": self.coord.apply_active,
             "apply_ready": self.coord.apply_ready,
+            "manual_apply_possible": self.coord.manual_apply_possible,
             "system_ready": self.coord.system_ready,
             "startup_ready": self.coord.startup_ready,
         }

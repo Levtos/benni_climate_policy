@@ -37,6 +37,7 @@ const NAV = [
   ["overview", "Overview", "mdi:view-dashboard-outline"],
   ["context", "Context", "mdi:account-clock-outline"],
   ["zones", "Zones", "mdi:home-thermometer-outline"],
+  ["thresholds", "Thresholds", "mdi:tune-vertical-variant"],
   ["effective", "Effective Temp", "mdi:thermometer-lines"],
   ["apply", "Apply", "mdi:play-circle-outline"],
   ["inputs", "Inputs", "mdi:database-search-outline"],
@@ -185,6 +186,10 @@ function effectiveInputs(hass) {
   return { ...fromDebug, ...fromSensor };
 }
 
+function thresholds(hass) {
+  return debugPayload(hass).thresholds || {};
+}
+
 function statusKind(value) {
   if (value === true || value === "on" || value === "ok" || value === "applied") return "ok";
   if (value === false || value === "off" || value === "idle" || value === "skipped" || value === "dry_run") return "info";
@@ -298,7 +303,8 @@ function renderZones(hass) {
       ${kv("pending plan hash", plan.pending_plan_hash, "mono")}
       ${kv("last applied plan hash", plan.last_applied_plan_hash, "mono")}
       ${kv("apply blocked", plan.apply_blocked)}
-      ${kv("apply reason", plan.apply_reason)}
+      ${kv("policy reason", plan.reason ?? "missing")}
+      ${kv("apply blocker", plan.apply_block_reason ?? plan.apply_reason)}
       ${kv("blocked_by", plan.blocked_by || [])}
       ${kv("decision_path", plan.decision_path || [])}
       ${kv("profile", plan.profile)}
@@ -309,6 +315,51 @@ function renderZones(hass) {
   }).join("");
   return `<div class="grid cols-2">${zoneCards}</div>
     <div class="section notice">Bad: noch nicht implementiert, geplant für den nächsten PR.</div>`;
+}
+
+function renderThresholds(hass) {
+  const data = thresholds(hass);
+  const th = data.thresholds || {};
+  const setpoints = data.setpoints || {};
+  const hysteresis = data.hysteresis || {};
+  const teffParams = data.effective_temperature_parameters || {};
+  const cooldowns = data.apply_cooldowns || {};
+  return `<div class="grid cols-3">
+    ${metric("Aktueller Monat", data.month ?? "missing")}
+    ${metric("Aktives Monatsband", data.active_month_band ?? "missing")}
+    ${metric("Komfort strukturell deaktiviert", data.comfort_structurally_disabled ?? "missing")}
+    ${metric("Boost strukturell deaktiviert", data.boost_structurally_disabled ?? "missing")}
+  </div>
+  <div class="section grid cols-2">
+    <div class="card">
+      <h2>${icon("mdi:thermometer-chevron-down")}Schwellenwerte</h2>
+      ${kv("Off-Grenze", th.off ?? "missing")}
+      ${kv("Komfort-Grenze", th.comfort ?? "disabled")}
+      ${kv("Boost-Grenze", th.boost ?? "disabled")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:thermostat")}Setpoints</h2>
+      ${kv("off", setpoints.off ?? "missing")}
+      ${kv("spar", setpoints.spar ?? "missing")}
+      ${kv("komfort", setpoints.komfort ?? "missing")}
+      ${kv("boost", setpoints.boost ?? "missing")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:chart-bell-curve-cumulative")}Hysterese-Parameter</h2>
+      ${Object.entries(hysteresis).map(([k, v]) => kv(k, v)).join("") || kv("hysteresis", "missing")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:tune")}Effective-Temperature-Parameter</h2>
+      ${Object.entries(teffParams).map(([k, v]) => kv(k, v)).join("") || kv("effective temperature parameters", "missing")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:timer-sand")}Apply-Cooldowns</h2>
+      ${kv("cooldown_seconds", cooldowns.cooldown_seconds ?? "missing")}
+      ${kv("startup_block_seconds", cooldowns.startup_block_seconds ?? "missing")}
+      ${kv("startup_ready", cooldowns.startup_ready ?? "missing")}
+      ${kv("last_apply_at", cooldowns.last_apply_at ?? {})}
+    </div>
+  </div>`;
 }
 
 function renderEffective(hass) {
@@ -351,9 +402,12 @@ function actionButton(id, label, iconName, primary, available) {
 function renderApply(hass) {
   const applyNow = serviceAvailable(hass, "apply_now");
   const dryRun = serviceAvailable(hass, "dry_run");
+  const payload = debugPayload(hass);
+  const lastApply = payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null);
   return `<div class="grid cols-3">
     ${metric("Auto-Apply Toggle Zustand", stateText(hass, ENTITIES.applyActive), ENTITIES.applyActive)}
-    ${metric("Apply Ready", stateText(hass, ENTITIES.applyReady), ENTITIES.applyReady)}
+    ${metric("Auto-Apply Ready", stateText(hass, ENTITIES.applyReady), ENTITIES.applyReady)}
+    ${metric("Manual Apply möglich", payload.manual_apply_possible ?? attr(hass, ENTITIES.applyStatus, "manual_apply_possible", "missing"))}
     ${metric("Apply Status", stateText(hass, ENTITIES.applyStatus), ENTITIES.applyStatus)}
     ${metric("Last Apply", stateText(hass, ENTITIES.lastApply), ENTITIES.lastApply)}
     ${metric("Dry Run verfügbar", dryRun ? "ja" : "missing service/button")}
@@ -369,7 +423,17 @@ function renderApply(hass) {
   </div>
   <div class="section card">
     <h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>
-    ${jsonBlock(debugPayload(hass).last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null) || "not run yet")}
+    ${jsonBlock(lastApply || "not run yet")}
+  </div>
+  <div class="section card">
+    <h2>${icon("mdi:format-list-checks")}Geplante Dry-Run-Service-Calls</h2>
+    ${jsonBlock((lastApply?.dry_run ? lastApply.actions : []).map((a) => ({
+      zone: a.zone,
+      reason: a.reason,
+      target_entity_id: a.target_entity_id,
+      service_calls: a.service_calls,
+      details: a.details,
+    })))}
   </div>`;
 }
 
@@ -406,6 +470,7 @@ function renderDebug(hass) {
     || "none";
   return `<div class="grid cols-2">
     <div class="card"><h2>${icon("mdi:routes")}Letzter Decision Path</h2>${jsonBlock(paths)}</div>
+    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonBlock(thresholds(hass))}</div>
     <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonBlock(contextSnapshot(hass))}</div>
     <div class="card"><h2>${icon("mdi:file-tree-outline")}Letzter Plan JSON</h2>${jsonBlock(planMap)}</div>
     <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>${jsonBlock(payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}</div>
@@ -426,6 +491,7 @@ const RENDERERS = {
   overview: renderOverview,
   context: renderContext,
   zones: renderZones,
+  thresholds: renderThresholds,
   effective: renderEffective,
   apply: renderApply,
   inputs: renderInputs,
