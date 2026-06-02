@@ -66,6 +66,7 @@
         "data": {
           "apply_active": "Auto apply active",
           "startup_block_seconds": "Startup quiet period",
+          "apply_cooldown_seconds": "Apply cooldown",
           "cooldown_seconds": "Apply cooldown"
         }
       }
@@ -84,6 +85,9 @@
           "zones": "Zones & Thermostats",
           "environment": "Weather & Effective Temperature",
           "apply": "Apply Engine",
+          "tuning_core": "Core Tuning",
+          "tuning_effective": "Effective Temperature Tuning",
+          "tuning_thresholds": "Monthly Thresholds",
           "windows": "Advanced Options",
           "diagnostics": "Diagnostics"
         }
@@ -152,7 +156,77 @@
         "data": {
           "apply_active": "Auto apply active",
           "startup_block_seconds": "Startup quiet period",
+          "apply_cooldown_seconds": "Apply cooldown",
           "cooldown_seconds": "Apply cooldown"
+        }
+      },
+      "tuning_core": {
+        "title": "Core Tuning",
+        "description": "Adjust the central setpoints and boost parameters for living room and kitchen.",
+        "data": {
+          "setpoint_off": "Off setpoint",
+          "setpoint_spar": "Savings setpoint",
+          "setpoint_komfort": "Comfort setpoint",
+          "setpoint_boost": "Boost setpoint",
+          "boost_delta": "Boost delta",
+          "boost_activation_delta": "Boost activation room delta"
+        }
+      },
+      "tuning_effective": {
+        "title": "Effective Temperature Tuning",
+        "description": "Adjust parameters used to calculate the effective outdoor temperature.",
+        "data": {
+          "floor_slab_tau": "Floor slab tau",
+          "lux_bonus_max": "Maximum lux bonus",
+          "lux_reference": "Lux reference",
+          "feels_like_damping": "Feels-like damping",
+          "forecast_weight": "Forecast weight"
+        }
+      },
+      "tuning_thresholds": {
+        "title": "Monthly Thresholds",
+        "description": "Adjust threshold bands. Disabled comfort or boost thresholds are shown for completeness but ignored by the policy.",
+        "data": {
+          "threshold_winter_off_threshold": "Winter off threshold",
+          "threshold_winter_comfort_threshold": "Winter comfort threshold",
+          "threshold_winter_boost_threshold": "Winter boost threshold",
+          "threshold_winter_comfort_disabled": "Winter comfort disabled",
+          "threshold_winter_boost_disabled": "Winter boost disabled",
+          "threshold_late_winter_off_threshold": "Late winter off threshold",
+          "threshold_late_winter_comfort_threshold": "Late winter comfort threshold",
+          "threshold_late_winter_boost_threshold": "Late winter boost threshold",
+          "threshold_late_winter_comfort_disabled": "Late winter comfort disabled",
+          "threshold_late_winter_boost_disabled": "Late winter boost disabled",
+          "threshold_spring_off_threshold": "Spring off threshold",
+          "threshold_spring_comfort_threshold": "Spring comfort threshold",
+          "threshold_spring_boost_threshold": "Spring boost threshold",
+          "threshold_spring_comfort_disabled": "Spring comfort disabled",
+          "threshold_spring_boost_disabled": "Spring boost disabled",
+          "threshold_late_spring_off_threshold": "Late spring off threshold",
+          "threshold_late_spring_comfort_threshold": "Late spring comfort threshold",
+          "threshold_late_spring_boost_threshold": "Late spring boost threshold",
+          "threshold_late_spring_comfort_disabled": "Late spring comfort disabled",
+          "threshold_late_spring_boost_disabled": "Late spring boost disabled",
+          "threshold_summer_off_threshold": "Summer off threshold",
+          "threshold_summer_comfort_threshold": "Summer comfort threshold",
+          "threshold_summer_boost_threshold": "Summer boost threshold",
+          "threshold_summer_comfort_disabled": "Summer comfort disabled",
+          "threshold_summer_boost_disabled": "Summer boost disabled",
+          "threshold_early_autumn_off_threshold": "Early autumn off threshold",
+          "threshold_early_autumn_comfort_threshold": "Early autumn comfort threshold",
+          "threshold_early_autumn_boost_threshold": "Early autumn boost threshold",
+          "threshold_early_autumn_comfort_disabled": "Early autumn comfort disabled",
+          "threshold_early_autumn_boost_disabled": "Early autumn boost disabled",
+          "threshold_autumn_off_threshold": "Autumn off threshold",
+          "threshold_autumn_comfort_threshold": "Autumn comfort threshold",
+          "threshold_autumn_boost_threshold": "Autumn boost threshold",
+          "threshold_autumn_comfort_disabled": "Autumn comfort disabled",
+          "threshold_autumn_boost_disabled": "Autumn boost disabled",
+          "threshold_late_autumn_off_threshold": "Late autumn off threshold",
+          "threshold_late_autumn_comfort_threshold": "Late autumn comfort threshold",
+          "threshold_late_autumn_boost_threshold": "Late autumn boost threshold",
+          "threshold_late_autumn_comfort_disabled": "Late autumn comfort disabled",
+          "threshold_late_autumn_boost_disabled": "Late autumn boost disabled"
         }
       },
       "diagnostics": {

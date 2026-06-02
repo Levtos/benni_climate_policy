@@ -128,6 +128,7 @@ class ZonePlan:
     last_applied: str | None = None
     apply_status: str = "pending"
     apply_block_reason: str = "none"
+    policy_config_hash: str | None = None
 
     @property
     def plan_hash(self) -> str:
@@ -137,6 +138,7 @@ class ZonePlan:
             "target_temperature": self.target_temperature,
             "blocked_by": sorted(self.blocked_by),
             "effective_outdoor_temperature": self.effective_outdoor_temperature,
+            "policy_config_hash": self.policy_config_hash,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
@@ -165,6 +167,7 @@ class ZonePlan:
             "last_applied": self.last_applied,
             "apply_status": self.apply_status,
             "apply_block_reason": self.apply_block_reason,
+            "policy_config_hash": self.policy_config_hash,
             "plan_hash": self.plan_hash,
         }
 
