@@ -6,6 +6,8 @@ apply_now:
           options:
             - living_room
             - kitchen
+            - bathroom
+            - bathroom_fan
       required: false
 apply_zone:
   fields:
@@ -15,6 +17,8 @@ apply_zone:
           options:
             - living_room
             - kitchen
+            - bathroom
+            - bathroom_fan
       required: true
 set_apply_active:
   fields:
@@ -32,5 +36,7 @@ dry_run:
           options:
             - living_room
             - kitchen
+            - bathroom
+            - bathroom_fan
       required: false
 

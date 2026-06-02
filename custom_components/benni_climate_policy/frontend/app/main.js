@@ -8,6 +8,9 @@ const ENTITIES = {
   applyStatus: "sensor.climate_policy_apply_status",
   lastApply: "sensor.climate_policy_last_apply",
   debugSummary: "sensor.climate_debug_summary",
+  bathroomFanMode: "sensor.bathroom_fan_mode",
+  bathroomFanPlanHash: "sensor.bathroom_fan_plan_hash",
+  bathroomFanBlocked: "binary_sensor.bathroom_fan_apply_blocked",
 };
 
 const ZONES = {
@@ -31,12 +34,23 @@ const ZONES = {
     applyReason: "sensor.kitchen_climate_apply_reason",
     blocked: "binary_sensor.kitchen_climate_apply_blocked",
   },
+  bathroom: {
+    label: "Bad",
+    mode: "sensor.bathroom_climate_mode",
+    target: "sensor.bathroom_climate_target_temp",
+    planHash: "sensor.bathroom_climate_plan_hash",
+    pendingHash: "sensor.bathroom_climate_pending_plan_hash",
+    lastAppliedHash: "sensor.bathroom_climate_last_applied_plan_hash",
+    applyReason: "sensor.bathroom_climate_apply_reason",
+    blocked: "binary_sensor.bathroom_climate_apply_blocked",
+  },
 };
 
 const NAV = [
   ["overview", "Overview", "mdi:view-dashboard-outline"],
   ["context", "Context", "mdi:account-clock-outline"],
   ["zones", "Zones", "mdi:home-thermometer-outline"],
+  ["bathroom", "Bathroom", "mdi:shower-head"],
   ["thresholds", "Thresholds", "mdi:tune-vertical-variant"],
   ["effective", "Effective Temp", "mdi:thermometer-lines"],
   ["apply", "Apply", "mdi:play-circle-outline"],
@@ -190,6 +204,10 @@ function thresholds(hass) {
   return debugPayload(hass).thresholds || {};
 }
 
+function bathroomDebug(hass) {
+  return debugPayload(hass).bathroom || {};
+}
+
 function statusKind(value) {
   if (value === true || value === "on" || value === "ok" || value === "applied") return "ok";
   if (value === false || value === "off" || value === "idle" || value === "skipped" || value === "dry_run") return "info";
@@ -248,6 +266,9 @@ function zonePlan(hass, zone) {
 function renderOverview(hass) {
   const living = zonePlan(hass, "living_room");
   const kitchen = zonePlan(hass, "kitchen");
+  const bathroom = zonePlan(hass, "bathroom");
+  const bath = bathroomDebug(hass);
+  const fan = bath.fan_plan || {};
   const loaded = Object.keys(hass?.states || {}).some((id) =>
     id.includes("climate_policy") || id.includes("climate_effective") || id.includes("climate_system_ready"));
   return `
@@ -260,10 +281,12 @@ function renderOverview(hass) {
       ${metric("Wohnzimmer Zieltemperatur", living.target_temperature, ZONES.living_room.target)}
       ${metric("Küche Mode", kitchen.profile, ZONES.kitchen.mode)}
       ${metric("Küche Zieltemperatur", kitchen.target_temperature, ZONES.kitchen.target)}
+      ${metric("Bad Mode", bathroom.profile, ZONES.bathroom.mode)}
+      ${metric("Bad Zieltemperatur", bathroom.target_temperature, ZONES.bathroom.target)}
+      ${metric("Bad Lüfter Mode", fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode), ENTITIES.bathroomFanMode)}
       ${metric("Globaler Apply Status", stateText(hass, ENTITIES.applyStatus), ENTITIES.applyStatus)}
       ${metric("Letzter Apply", stateText(hass, ENTITIES.lastApply), ENTITIES.lastApply)}
     </div>
-    <div class="section notice">Bad Policy ist noch nicht implementiert. Bad-Entities im Config Flow sind aktuell Platzhalter für den nächsten PR.</div>
   `;
 }
 
@@ -317,8 +340,60 @@ function renderZones(hass) {
       ${kv("boost status", plan.is_boost_active ? "active" : "inactive")}
     </div>`;
   }).join("");
-  return `<div class="grid cols-2">${zoneCards}</div>
-    <div class="section notice">Bad: noch nicht implementiert, geplant für den nächsten PR.</div>`;
+  return `<div class="grid cols-2">${zoneCards}</div>`;
+}
+
+function renderBathroom(hass) {
+  const bath = bathroomDebug(hass);
+  const climate = bath.climate_plan || zonePlan(hass, "bathroom");
+  const fan = bath.fan_plan || {};
+  const diag = fan.diagnostics || {};
+  const tuning = bath.tuning || {};
+  return `<div class="grid cols-4">
+    ${metric("Bad Climate Mode", climate.profile ?? "missing", ZONES.bathroom.mode)}
+    ${metric("Bad Zieltemperatur", climate.target_temperature ?? "missing", ZONES.bathroom.target)}
+    ${metric("Bad Lüfter Mode", fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode), ENTITIES.bathroomFanMode)}
+    ${metric("Bad Lüfter Zielzustand", fan.target_switch_state ?? "missing")}
+    ${metric("Taupunkt Bad", diag.dewpoint ?? "missing")}
+    ${metric("AH Bad", diag.absolute_humidity_bathroom ?? "missing")}
+    ${metric("AH Wohnzimmer", diag.absolute_humidity_living ?? "missing")}
+    ${metric("AH Delta", diag.ah_delta ?? "missing")}
+  </div>
+  <div class="section grid cols-2">
+    <div class="card">
+      <h2>${icon("mdi:radiator")}Bad Heizung</h2>
+      ${kv("policy reason", climate.reason ?? "missing")}
+      ${kv("apply blocker", climate.apply_block_reason ?? "missing")}
+      ${kv("blocked_by", climate.blocked_by || [])}
+      ${kv("effective outdoor temperature", climate.effective_outdoor_temperature ?? "missing")}
+      ${kv("plan hash", climate.plan_hash ?? "missing", "mono")}
+      ${kv("policy config hash", climate.policy_config_hash ?? "missing", "mono")}
+      ${kv("decision path", climate.decision_path || [])}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:fan")}Bad Lüfter</h2>
+      ${kv("fan reason", fan.fan_reason ?? fan.reason ?? "missing")}
+      ${kv("fan blocker", fan.fan_blocker ?? fan.apply_block_reason ?? "missing")}
+      ${kv("apply blocker", fan.apply_block_reason ?? "missing")}
+      ${kv("heating fan coordination", diag.heating_fan_coordination_state ?? "missing")}
+      ${kv("max durations", diag.max_duration_minutes ?? {})}
+      ${kv("last fan active at", diag.last_fan_active_at ?? "not_available")}
+      ${kv("plan hash", fan.plan_hash ?? stateText(hass, ENTITIES.bathroomFanPlanHash), "mono")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:water-percent")}Feuchte-Diagnose</h2>
+      ${kv("bathroom humidity", diag.bathroom_humidity ?? "see input sensor")}
+      ${kv("dewpoint", diag.dewpoint ?? "missing")}
+      ${kv("absolute_humidity_bathroom", diag.absolute_humidity_bathroom ?? "missing")}
+      ${kv("absolute_humidity_living", diag.absolute_humidity_living ?? "missing")}
+      ${kv("ah_delta", diag.ah_delta ?? "missing")}
+      ${kv("input quality", diag.input_quality ?? "missing")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:tune")}Aktive Bad-Parameter</h2>
+      ${Object.entries(tuning).filter(([k]) => k !== "sources").map(([k, v]) => kvSource(k, v, tuning.sources?.[`bath_${k}`] || tuning.sources?.[k])).join("") || kv("tuning", "missing")}
+    </div>
+  </div>`;
 }
 
 function renderThresholds(hass) {
@@ -445,6 +520,10 @@ function renderApply(hass) {
       ${actionButton("apply-global", "Global Manual Apply", "mdi:play-outline", true, applyNow)}
       ${actionButton("apply-living_room", "Wohnzimmer Manual Apply", "mdi:sofa-outline", false, applyNow)}
       ${actionButton("apply-kitchen", "Küche Manual Apply", "mdi:silverware-fork-knife", false, applyNow)}
+      ${actionButton("dry-run-bathroom", "Bad Dry Run", "mdi:flask-outline", false, dryRun)}
+      ${actionButton("apply-bathroom", "Bad Manual Apply", "mdi:shower-head", false, applyNow)}
+      ${actionButton("dry-run-bathroom_fan", "Bad Lüfter Dry Run", "mdi:fan-alert", false, dryRun)}
+      ${actionButton("apply-bathroom_fan", "Bad Lüfter Apply", "mdi:fan", false, applyNow)}
     </div>
   </div>
   <div class="section card">
@@ -517,6 +596,7 @@ const RENDERERS = {
   overview: renderOverview,
   context: renderContext,
   zones: renderZones,
+  bathroom: renderBathroom,
   thresholds: renderThresholds,
   effective: renderEffective,
   apply: renderApply,
@@ -609,6 +689,8 @@ class BcpApp extends HTMLElement {
         await this._hass.callService(DOMAIN, "dry_run", {});
       } else if (action === "apply-global") {
         await this._hass.callService(DOMAIN, "apply_now", {});
+      } else if (action.startsWith("dry-run-")) {
+        await this._hass.callService(DOMAIN, "dry_run", { zone: action.replace("dry-run-", "") });
       } else if (action.startsWith("apply-")) {
         await this._hass.callService(DOMAIN, "apply_now", { zone: action.replace("apply-", "") });
       }

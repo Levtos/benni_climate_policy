@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_KITCHEN, ZONE_LIVING
+from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_BATHROOM, ZONE_KITCHEN, ZONE_LIVING
 from .coordinator import ClimatePolicyCoordinator
 from .entity import ClimatePolicyEntity
 
@@ -19,7 +19,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         SystemReadyBinarySensor(coord),
         ApplyReadyBinarySensor(coord),
     ]
-    entities.extend(ZoneApplyBlockedBinarySensor(coord, zone) for zone in HEATING_ZONES)
+    entities.extend(ZoneApplyBlockedBinarySensor(coord, zone) for zone in (*HEATING_ZONES, ZONE_BATHROOM))
+    entities.append(BathroomFanApplyBlockedBinarySensor(coord))
     async_add_entities(entities)
 
 
@@ -61,7 +62,7 @@ class ApplyReadyBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
 class ZoneApplyBlockedBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
     def __init__(self, coord: ClimatePolicyCoordinator, zone: str) -> None:
         self.zone = zone
-        display = "Living Room" if zone == ZONE_LIVING else "Kitchen" if zone == ZONE_KITCHEN else zone
+        display = "Living Room" if zone == ZONE_LIVING else "Kitchen" if zone == ZONE_KITCHEN else "Bathroom"
         super().__init__(coord, f"{display} Climate Apply Blocked", f"{zone}_apply_blocked")
 
     @property
@@ -72,5 +73,20 @@ class ZoneApplyBlockedBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         plan = self.coord.zone_plan(self.zone)
+        return plan.as_dict() if plan else {"reason": "not_calculated"}
+
+
+class BathroomFanApplyBlockedBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
+    def __init__(self, coord: ClimatePolicyCoordinator) -> None:
+        super().__init__(coord, "Bathroom Fan Apply Blocked", "bathroom_fan_apply_blocked")
+
+    @property
+    def is_on(self) -> bool:
+        plan = self.coord.bathroom_fan_plan
+        return bool(plan.apply_blocked) if plan else True
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        plan = self.coord.bathroom_fan_plan
         return plan.as_dict() if plan else {"reason": "not_calculated"}
 
