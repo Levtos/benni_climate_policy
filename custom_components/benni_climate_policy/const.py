@@ -56,6 +56,13 @@ DEFAULT_STARTUP_BLOCK_SECONDS = 90
 DEFAULT_COOLDOWN_SECONDS = 600
 DEFAULT_APPLY_ACTIVE = False
 
+FRONTEND_DIR_URL = f"/{DOMAIN}_frontend"
+FRONTEND_ENTRY = f"{FRONTEND_DIR_URL}/main.js"
+PANEL_URL_PATH = "benni-climate-policy"
+PANEL_ELEMENT = "bcp-app"
+PANEL_TITLE = "Climate Policy"
+PANEL_ICON = "mdi:thermostat"
+
 PRESET = {
     CONF_CONTEXT_ACTIVITY: "sensor.context_activity_state_combined",
     CONF_CONTEXT_BIO: "sensor.context_bio_state_combined",

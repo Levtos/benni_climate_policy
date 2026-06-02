@@ -33,7 +33,11 @@ class SystemReadyBinarySensor(ClimatePolicyEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {"startup_ready": self.coord.startup_ready, "debug": self.coord.debug_summary()}
+        return {
+            "startup_ready": self.coord.startup_ready,
+            "debug": self.coord.debug_summary(),
+            "inputs": self.coord.input_snapshot(),
+        }
 
 
 class ApplyReadyBinarySensor(ClimatePolicyEntity, BinarySensorEntity):

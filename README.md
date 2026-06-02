@@ -11,6 +11,16 @@ Der aktuelle Kernpfad baut zuerst die praktisch nutzbaren Heizfunktionen:
 - manuellen Apply und Dry Run anbieten
 - jeden Skip/Block lesbar erklaeren
 
+## Diagnose-Panel
+
+Die Integration registriert ein read-only Panel in der Home-Assistant-Sidebar:
+
+- Titel: `Climate Policy`
+- Direktpfad: `/benni-climate-policy`
+
+Das Panel zeigt Context, Zonenplaene, effektive Aussentemperatur, Apply-Status,
+konfigurierte Inputs und kompakte Debugdaten. Es veraendert keine Policy-Regeln.
+
 Gefundene Entity-IDs sind nur Vorschlaege im Config Flow. Die Integration soll
 am Ende selbst Source of Truth fuer Klima-Entscheidungen sein; alte
 `sensor.climate_*_combined` und YAML-Apply-Logik bleiben nur

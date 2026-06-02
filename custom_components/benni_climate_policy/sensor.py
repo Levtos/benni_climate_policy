@@ -46,7 +46,12 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return self.coord.decision.effective_temperature.as_dict() if self.coord.decision else {}
+        if not self.coord.decision:
+            return {"inputs": self.coord.effective_input_snapshot()}
+        return {
+            **self.coord.decision.effective_temperature.as_dict(),
+            "inputs": self.coord.effective_input_snapshot(),
+        }
 
 
 class ApplyStatusSensor(ClimatePolicyEntity, SensorEntity):
@@ -59,7 +64,15 @@ class ApplyStatusSensor(ClimatePolicyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return self.coord.last_apply_result.as_dict() if self.coord.last_apply_result else {}
+        result = self.coord.last_apply_result.as_dict() if self.coord.last_apply_result else {}
+        return {
+            **result,
+            "result": result or None,
+            "apply_active": self.coord.apply_active,
+            "apply_ready": self.coord.apply_ready,
+            "system_ready": self.coord.system_ready,
+            "startup_ready": self.coord.startup_ready,
+        }
 
 
 class LastApplySensor(ClimatePolicyEntity, SensorEntity):
@@ -92,6 +105,7 @@ class DebugSummarySensor(ClimatePolicyEntity, SensorEntity):
             "context": self.coord.decision.context.as_dict(),
             "effective_outdoor_temperature": self.coord.decision.effective_temperature.as_dict(),
             "plans": {zone: plan.as_dict() for zone, plan in self.coord.decision.zone_plans.items()},
+            "debug": self.coord.debug_payload(),
         }
 
 

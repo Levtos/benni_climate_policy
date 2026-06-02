@@ -15,6 +15,7 @@ from homeassistant.util import dt as dt_util
 from .apply_engine import ApplyEngine, ApplyGateState
 from .const import (
     CONF_APPLY_ACTIVE,
+    CONF_BATH_FAN,
     CONF_COOLDOWN_SECONDS,
     CONF_FORECAST_TEMPERATURE,
     CONF_KITCHEN_PATIO_OPEN,
@@ -37,6 +38,7 @@ from .const import (
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_STARTUP_BLOCK_SECONDS,
     HEATING_ZONES,
+    PRESET,
     ZONE_KITCHEN,
     ZONE_LIVING,
 )
@@ -61,6 +63,39 @@ def _float(value: str | None) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _input_role(key: str) -> str:
+    if key == CONF_BATH_FAN:
+        return "actuator"
+    if key.startswith("context_"):
+        return "context"
+    if key in (
+        CONF_OUTDOOR_TEMPERATURE,
+        CONF_OUTDOOR_FEELS_LIKE,
+        CONF_FORECAST_TEMPERATURE,
+        CONF_WEATHER_CONDITION,
+        CONF_OUTDOOR_LUX,
+        CONF_SUN,
+    ):
+        return "weather"
+    if "window" in key or "patio_door" in key:
+        return "window"
+    if key.endswith("_thermostat"):
+        return "thermostat"
+    if key.endswith("_temperature") or key.endswith("_humidity"):
+        return "room"
+    if key == CONF_SYSTEM_READY:
+        return "system"
+    return "other"
+
+
+def _input_status(state_value: str | None) -> str:
+    if state_value is None:
+        return "missing"
+    if state_value in ("unknown", "unavailable"):
+        return state_value
+    return "ok"
 
 
 class ClimatePolicyCoordinator:
@@ -154,6 +189,53 @@ class ClimatePolicyCoordinator:
         if not state:
             return None
         return _float(str(state.attributes.get("elevation")))
+
+    def input_snapshot(self) -> list[dict[str, Any]]:
+        keys = sorted({*PRESET, *(key for key, value in self.config.items() if isinstance(value, str))})
+        out: list[dict[str, Any]] = []
+        for key in keys:
+            configured = self.config.get(key)
+            preset = PRESET.get(key)
+            entity_id = configured or preset
+            state = self.hass.states.get(entity_id) if entity_id else None
+            if configured and preset and configured == preset:
+                source = "candidate"
+            elif configured:
+                source = "user configured"
+            elif preset:
+                source = "fallback"
+            else:
+                source = "missing"
+            out.append({
+                "role": _input_role(key),
+                "key": key,
+                "entity_id": entity_id,
+                "state": state.state if state else None,
+                "status": _input_status(state.state if state else None),
+                "source": source,
+            })
+        return out
+
+    def effective_input_snapshot(self) -> dict[str, Any]:
+        sun_entity = self.config.get(CONF_SUN)
+        sun_state = self.hass.states.get(sun_entity) if sun_entity else None
+        return {
+            "real_temperature": self._float_state(CONF_OUTDOOR_TEMPERATURE),
+            "feels_like_temperature": self._float_state(CONF_OUTDOOR_FEELS_LIKE),
+            "forecast_temperature": self._float_state(CONF_FORECAST_TEMPERATURE),
+            "weather_condition": self._state(CONF_WEATHER_CONDITION),
+            "outdoor_lux": self._float_state(CONF_OUTDOOR_LUX),
+            "sun_elevation": self._sun_elevation(),
+            "source_entities": {
+                "real_temperature": self.config.get(CONF_OUTDOOR_TEMPERATURE),
+                "feels_like_temperature": self.config.get(CONF_OUTDOOR_FEELS_LIKE),
+                "forecast_temperature": self.config.get(CONF_FORECAST_TEMPERATURE),
+                "weather_condition": self.config.get(CONF_WEATHER_CONDITION),
+                "outdoor_lux": self.config.get(CONF_OUTDOOR_LUX),
+                "sun": sun_entity,
+            },
+            "sun_state": sun_state.state if sun_state else None,
+        }
 
     @property
     def system_ready(self) -> bool:
@@ -280,4 +362,22 @@ class ClimatePolicyCoordinator:
             return "not_calculated"
         modes = ",".join(f"{z}:{p.profile}" for z, p in self.decision.zone_plans.items())
         return f"ready={self.system_ready}; apply={self.apply_active}; {modes}"
+
+    def debug_payload(self) -> dict[str, Any]:
+        return {
+            "system_ready": self.system_ready,
+            "apply_active": self.apply_active,
+            "apply_ready": self.apply_ready,
+            "startup_ready": self.startup_ready,
+            "startup_block_seconds": self.startup_block_seconds,
+            "cooldown_seconds": self.cooldown_seconds,
+            "last_applied_hash": dict(self.last_applied_hash),
+            "last_apply_at": {
+                zone: value.isoformat() if value else None
+                for zone, value in self.last_apply_at.items()
+            },
+            "last_apply_result": self.last_apply_result.as_dict() if self.last_apply_result else None,
+            "effective_inputs": self.effective_input_snapshot(),
+            "inputs": self.input_snapshot(),
+        }
 
