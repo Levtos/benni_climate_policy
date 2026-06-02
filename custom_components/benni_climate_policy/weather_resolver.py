@@ -178,15 +178,19 @@ class WeatherResolver:
     def _state(self, entity_id: str | None):
         return self.hass.states.get(entity_id) if entity_id else None
 
+    def _weather_state_available(self, entity_id: str | None) -> bool:
+        state = self._state(entity_id)
+        return bool(state) and state.state not in (None, "", "unknown", "unavailable")
+
     def _float_state(self, entity_id: str | None) -> float | None:
         state = self._state(entity_id)
         return _float(state.state if state else None)
 
     def _weather_entity_candidates(self) -> list[str]:
         configured = self.config.get(CONF_WEATHER_ENTITY)
-        if configured:
+        if configured and self._weather_state_available(str(configured)):
             return [str(configured)]
-        return [AUTO_WEATHER_ENTITY] if self._state(AUTO_WEATHER_ENTITY) else []
+        return [AUTO_WEATHER_ENTITY] if self._weather_state_available(AUTO_WEATHER_ENTITY) else []
 
     async def async_resolve(self, *, real_temperature: float | None, now: datetime) -> WeatherResolution:
         target_time = now + timedelta(hours=3)
