@@ -45,6 +45,12 @@ def _large_debug_payload():
         "thresholds": {"large": "x" * 5000},
         "tuning_options": {"large": "x" * 5000},
         "inputs": [{"entity_id": f"sensor.{idx}", "state": "x" * 50} for idx in range(100)],
+        "effective_inputs": {
+            "weather_resolution": {
+                "forecast": {"source": "weather_forecast", "value": 17.0},
+                "feels_like": {"source": "fallback_real_temperature", "value": 12.0},
+            },
+        },
         "debug": {"large": "x" * 5000},
     }
 
@@ -65,6 +71,32 @@ def test_compact_debug_attributes_do_not_include_large_payloads():
     assert attrs["bathroom_fan_mode"] == "nachluft"
 
 
+def test_compact_debug_attributes_only_expose_allowed_summary_keys():
+    attrs = compact_debug_attributes(_large_debug_payload())
+
+    assert set(attrs) == {
+        "system_ready",
+        "apply_active",
+        "apply_status",
+        "effective_outdoor_temperature",
+        "living_room_mode",
+        "living_room_target_temp",
+        "living_room_policy_reason",
+        "living_room_apply_blocker",
+        "kitchen_mode",
+        "kitchen_target_temp",
+        "kitchen_policy_reason",
+        "kitchen_apply_blocker",
+        "bathroom_mode",
+        "bathroom_target_temp",
+        "bathroom_fan_mode",
+        "bathroom_fan_reason",
+        "last_apply_status",
+        "last_apply_reason",
+        "debug_payload_available",
+    }
+
+
 def test_full_debug_payload_keeps_large_debug_data_for_endpoint():
     payload = _large_debug_payload()
     full = full_debug_payload(
@@ -81,6 +113,7 @@ def test_full_debug_payload_keeps_large_debug_data_for_endpoint():
     assert full["tuning_options"] == payload["tuning_options"]
     assert full["last_apply_result"] == payload["last_apply_result"]
     assert full["inputs"] == payload["inputs"]
+    assert full["weather_resolution"] == payload["effective_inputs"]["weather_resolution"]
     assert full["timestamp"] == "2026-06-02T12:00:00"
 
 
@@ -89,3 +122,14 @@ def test_panel_has_missing_debug_endpoint_fallback():
 
     assert "Debug-Endpunkt nicht erreichbar" in source
     assert "debugEndpointNotice" in source
+
+
+def test_panel_apply_debug_rendering_is_collapsible_and_summarized():
+    source = open("custom_components/benni_climate_policy/frontend/app/main.js", encoding="utf-8").read()
+
+    assert "function renderApplySummary" in source
+    assert "Blockiert durch Start-Ruhephase" in source
+    assert "jsonDetails(\"Details als JSON anzeigen\", lastApply)" in source
+    assert "JSON_CACHE" in source
+    assert "scrollbar-gutter: stable" in source
+    assert "if (this._lastHtml === html) return;" in source
