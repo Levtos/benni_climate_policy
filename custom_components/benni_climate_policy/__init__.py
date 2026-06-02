@@ -31,6 +31,9 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
 
     coord.async_start()
     await coord.async_evaluate(auto_apply=False)
+    from .view import async_setup_view
+
+    await async_setup_view(hass)
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
     _register_services(hass)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
@@ -59,6 +62,9 @@ async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> boo
                 SERVICE_DRY_RUN,
             ):
                 hass.services.async_remove(DOMAIN, service)
+            from .view import async_remove_view
+
+            async_remove_view(hass)
     return unloaded
 
 
