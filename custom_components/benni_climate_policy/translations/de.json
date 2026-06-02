@@ -1,15 +1,164 @@
 {
   "config": {
+    "flow_title": "Benni Climate Policy",
     "step": {
-      "context": { "title": "Context" },
-      "environment": { "title": "Umgebung" },
-      "zones": { "title": "Zonen" },
-      "windows": { "title": "Fenster" },
-      "apply": { "title": "Apply" }
+      "context": {
+        "title": "Sensoren & Context",
+        "description": "Waehle die Context-Sensoren aus, die der read-only Klima-Policy-Core verwendet.",
+        "data": {
+          "context_activity_state": "Aktivitaetsstatus",
+          "context_bio_state": "Bio-Status",
+          "context_day_context": "Tageskontext",
+          "context_day_state": "Tagesphase",
+          "context_presence_band": "Anwesenheitsband",
+          "context_presence_household": "Haushaltsanwesenheit",
+          "context_presence_personal": "Persoenliche Anwesenheit",
+          "context_presence_preheat_active": "Anwesenheits-Vorheizen aktiv",
+          "context_presence_transition": "Anwesenheits-Uebergang",
+          "context_workday_state": "Arbeitstag-Status",
+          "context_planned_wakeup_time": "Geplante Aufwachzeit"
+        }
+      },
+      "environment": {
+        "title": "Wetter & effektive Aussentemperatur",
+        "description": "Waehle Aussen-, Wetter-, Sonnen- und Bereitschafts-Inputs fuer die effektive Temperaturdiagnose.",
+        "data": {
+          "outdoor_temperature": "Aussentemperatur",
+          "outdoor_feels_like": "Gefuehlte Aussentemperatur",
+          "forecast_temperature_3h": "Forecast-Temperatur +3h",
+          "weather_condition": "Wetterzustand",
+          "outdoor_lux": "Aussenhelligkeit",
+          "sun_entity": "Sonnen-Entity",
+          "system_ready": "System-Ready-Entity"
+        }
+      },
+      "zones": {
+        "title": "Zonen & Thermostate",
+        "description": "Ordne Raum-Sensoren und Thermostate zu. Bad-Eintraege sind Platzhalter bis zum Bad-Policy-PR.",
+        "data": {
+          "living_room_temperature": "Wohnzimmer Temperatur",
+          "living_room_humidity": "Wohnzimmer Luftfeuchte",
+          "living_room_thermostat": "Wohnzimmer Thermostat",
+          "kitchen_temperature": "Kueche Temperatur",
+          "kitchen_humidity": "Kueche Luftfeuchte",
+          "kitchen_thermostat": "Kueche Thermostat",
+          "bathroom_temperature": "Bad Temperatur",
+          "bathroom_humidity": "Bad Luftfeuchte",
+          "bathroom_thermostat": "Bad Thermostat",
+          "bath_fan": "Badluefter"
+        }
+      },
+      "windows": {
+        "title": "Erweiterte Optionen",
+        "description": "Waehle Fenster- und Terrassentuerkontakte, die als Apply-Blocker genutzt werden.",
+        "data": {
+          "living_window_left_open": "Wohnzimmer Fenster links offen",
+          "living_window_left_tilt": "Wohnzimmer Fenster links gekippt",
+          "living_window_right_open": "Wohnzimmer Fenster rechts offen",
+          "living_window_right_tilt": "Wohnzimmer Fenster rechts gekippt",
+          "kitchen_patio_door_open": "Kueche Terrassentuer offen",
+          "kitchen_patio_door_tilt": "Kueche Terrassentuer gekippt"
+        }
+      },
+      "apply": {
+        "title": "Apply Engine",
+        "description": "Konfiguriere sichere Apply-Defaults. Auto-Apply bleibt aus, bis es explizit aktiviert wird.",
+        "data": {
+          "apply_active": "Auto-Apply aktiv",
+          "startup_block_seconds": "Startup-Ruhezeit",
+          "cooldown_seconds": "Apply-Cooldown"
+        }
+      }
     },
     "abort": {
       "single_instance_allowed": "Es ist nur eine Climate-Policy-Instanz erlaubt."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Benni Climate Policy Optionen",
+        "description": "Waehle aus, welchen Teil der Integrationskonfiguration du pruefen oder anpassen moechtest.",
+        "menu_options": {
+          "context": "Sensoren & Context",
+          "zones": "Zonen & Thermostate",
+          "environment": "Wetter & effektive Aussentemperatur",
+          "apply": "Apply Engine",
+          "windows": "Erweiterte Optionen",
+          "diagnostics": "Diagnose"
+        }
+      },
+      "context": {
+        "title": "Sensoren & Context",
+        "description": "Pruefe oder aendere die konfigurierten Context-Entities.",
+        "data": {
+          "context_activity_state": "Aktivitaetsstatus",
+          "context_bio_state": "Bio-Status",
+          "context_day_context": "Tageskontext",
+          "context_day_state": "Tagesphase",
+          "context_presence_band": "Anwesenheitsband",
+          "context_presence_household": "Haushaltsanwesenheit",
+          "context_presence_personal": "Persoenliche Anwesenheit",
+          "context_presence_preheat_active": "Anwesenheits-Vorheizen aktiv",
+          "context_presence_transition": "Anwesenheits-Uebergang",
+          "context_workday_state": "Arbeitstag-Status",
+          "context_planned_wakeup_time": "Geplante Aufwachzeit"
+        }
+      },
+      "environment": {
+        "title": "Wetter & effektive Aussentemperatur",
+        "description": "Pruefe oder aendere Aussen- und Wetter-Entities.",
+        "data": {
+          "outdoor_temperature": "Aussentemperatur",
+          "outdoor_feels_like": "Gefuehlte Aussentemperatur",
+          "forecast_temperature_3h": "Forecast-Temperatur +3h",
+          "weather_condition": "Wetterzustand",
+          "outdoor_lux": "Aussenhelligkeit",
+          "sun_entity": "Sonnen-Entity",
+          "system_ready": "System-Ready-Entity"
+        }
+      },
+      "zones": {
+        "title": "Zonen & Thermostate",
+        "description": "Pruefe oder aendere Raum-Sensoren und Thermostat-Zuordnungen.",
+        "data": {
+          "living_room_temperature": "Wohnzimmer Temperatur",
+          "living_room_humidity": "Wohnzimmer Luftfeuchte",
+          "living_room_thermostat": "Wohnzimmer Thermostat",
+          "kitchen_temperature": "Kueche Temperatur",
+          "kitchen_humidity": "Kueche Luftfeuchte",
+          "kitchen_thermostat": "Kueche Thermostat",
+          "bathroom_temperature": "Bad Temperatur",
+          "bathroom_humidity": "Bad Luftfeuchte",
+          "bathroom_thermostat": "Bad Thermostat",
+          "bath_fan": "Badluefter"
+        }
+      },
+      "windows": {
+        "title": "Erweiterte Optionen",
+        "description": "Pruefe oder aendere Fenster- und Terrassentuerkontakte.",
+        "data": {
+          "living_window_left_open": "Wohnzimmer Fenster links offen",
+          "living_window_left_tilt": "Wohnzimmer Fenster links gekippt",
+          "living_window_right_open": "Wohnzimmer Fenster rechts offen",
+          "living_window_right_tilt": "Wohnzimmer Fenster rechts gekippt",
+          "kitchen_patio_door_open": "Kueche Terrassentuer offen",
+          "kitchen_patio_door_tilt": "Kueche Terrassentuer gekippt"
+        }
+      },
+      "apply": {
+        "title": "Apply Engine",
+        "description": "Pruefe oder aendere Sicherheitswerte der Apply Engine.",
+        "data": {
+          "apply_active": "Auto-Apply aktiv",
+          "startup_block_seconds": "Startup-Ruhezeit",
+          "cooldown_seconds": "Apply-Cooldown"
+        }
+      },
+      "diagnostics": {
+        "title": "Diagnose",
+        "description": "Das read-only Diagnose-Panel ist in der Home-Assistant-Sidebar als Climate Policy oder direkt unter /benni-climate-policy erreichbar."
+      }
+    }
   }
 }
-

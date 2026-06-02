@@ -212,7 +212,10 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
         self._entry = entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["context", "environment", "zones", "windows", "apply"])
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["context", "zones", "environment", "apply", "windows", "diagnostics"],
+        )
 
     def _edit(self, step_id: str, keys: tuple[str, ...], user_input: dict[str, Any] | None) -> FlowResult:
         if user_input is not None:
@@ -234,4 +237,9 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
 
     async def async_step_apply(self, user_input=None):
         return self._edit("apply", STEP_APPLY, user_input)
+
+    async def async_step_diagnostics(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=self._entry.options)
+        return self.async_show_form(step_id="diagnostics", data_schema=vol.Schema({}))
 
