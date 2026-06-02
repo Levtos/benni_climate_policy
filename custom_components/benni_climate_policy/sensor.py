@@ -107,6 +107,8 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
             )
         }
         compact_inputs["source_entities"] = inputs.get("source_entities")
+        compact_inputs["forecast_resolution"] = inputs.get("forecast_resolution")
+        compact_inputs["feels_like_resolution"] = inputs.get("feels_like_resolution")
         if not self.coord.decision:
             return compact_inputs
         return {

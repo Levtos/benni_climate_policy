@@ -21,11 +21,12 @@
       },
       "environment": {
         "title": "Wetter & effektive Aussentemperatur",
-        "description": "Waehle Aussen-, Wetter-, Sonnen- und Bereitschafts-Inputs fuer die effektive Temperaturdiagnose.",
+        "description": "Waehle Aussen-, Wetter-, Sonnen- und Bereitschafts-Inputs. Forecast +3h kann aus einer Weather-Entity gelesen werden; gefuehlte Aussentemperatur ist optional und faellt sonst auf die reale Aussentemperatur zurueck.",
         "data": {
           "outdoor_temperature": "Aussentemperatur",
-          "outdoor_feels_like": "Gefuehlte Aussentemperatur",
-          "forecast_temperature_3h": "Forecast-Temperatur +3h",
+          "weather_entity": "Weather-Entity",
+          "outdoor_feels_like": "Gefuehlte Aussentemperatur Sensor",
+          "forecast_temperature_3h": "Forecast-Temperatur +3h Sensor",
           "weather_condition": "Wetterzustand",
           "outdoor_lux": "Aussenhelligkeit",
           "sun_entity": "Sonnen-Entity",
@@ -112,11 +113,12 @@
       },
       "environment": {
         "title": "Wetter & effektive Aussentemperatur",
-        "description": "Pruefe oder aendere Aussen- und Wetter-Entities.",
+        "description": "Pruefe oder aendere Aussen- und Wetter-Entities. Forecast +3h kann aus einer Weather-Entity gelesen werden; gefuehlte Aussentemperatur ist optional und faellt sonst auf die reale Aussentemperatur zurueck.",
         "data": {
           "outdoor_temperature": "Aussentemperatur",
-          "outdoor_feels_like": "Gefuehlte Aussentemperatur",
-          "forecast_temperature_3h": "Forecast-Temperatur +3h",
+          "weather_entity": "Weather-Entity",
+          "outdoor_feels_like": "Gefuehlte Aussentemperatur Sensor",
+          "forecast_temperature_3h": "Forecast-Temperatur +3h Sensor",
           "weather_condition": "Wetterzustand",
           "outdoor_lux": "Aussenhelligkeit",
           "sun_entity": "Sonnen-Entity",
