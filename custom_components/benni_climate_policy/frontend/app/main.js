@@ -15,6 +15,7 @@ const ENTITIES = {
   bathroomFanBlocked: "binary_sensor.bathroom_fan_apply_blocked",
 };
 const DEBUG_API_PATH = `${DOMAIN}/debug`;
+const JSON_CACHE = new WeakMap();
 
 const ZONES = {
   living_room: {
@@ -177,7 +178,10 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 9px; border-bottom: 1px solid var(--bcp-line); text-align: left; vertical-align: top; font-size: 13px; }
 th { color: var(--bcp-muted); font-size: 12px; font-weight: 650; }
 .table-wrap { overflow-x: auto; }
-.pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bcp-panel); border: 1px solid var(--bcp-line); border-radius: 8px; padding: 11px; max-height: 440px; overflow: auto; }
+.pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bcp-panel); border: 1px solid var(--bcp-line); border-radius: 8px; padding: 11px; max-height: 360px; min-height: 96px; overflow: auto; scrollbar-gutter: stable; contain: content; }
+.json-details summary { cursor: pointer; color: var(--bcp-muted); font-size: 13px; margin-bottom: 8px; }
+.apply-summary { min-width: 760px; }
+.apply-summary td, .apply-summary th { vertical-align: middle; }
 .actions { display: flex; flex-wrap: wrap; gap: 9px; }
 button.action { display: inline-grid; grid-template-columns: 18px auto; gap: 7px; align-items: center; min-height: 36px; border: 1px solid var(--bcp-line);
   border-radius: 8px; background: var(--bcp-surface); color: var(--bcp-text); padding: 8px 11px; cursor: pointer; font: inherit; }
@@ -314,7 +318,56 @@ function metric(label, value, entityId = "") {
 }
 
 function jsonBlock(value) {
-  return `<div class="pre mono">${esc(JSON.stringify(value ?? null, null, 2))}</div>`;
+  const normalized = value ?? null;
+  if (normalized && typeof normalized === "object") {
+    const cached = JSON_CACHE.get(normalized);
+    if (cached !== undefined) return `<div class="pre mono">${cached}</div>`;
+    const text = esc(JSON.stringify(normalized, null, 2));
+    JSON_CACHE.set(normalized, text);
+    return `<div class="pre mono">${text}</div>`;
+  }
+  return `<div class="pre mono">${esc(JSON.stringify(normalized, null, 2))}</div>`;
+}
+
+function jsonDetails(summary, value) {
+  return `<details class="json-details"><summary>${esc(summary)}</summary>${jsonBlock(value)}</details>`;
+}
+
+function plannedFromCalls(action, key) {
+  const calls = Array.isArray(action?.service_calls) ? action.service_calls : [];
+  for (const call of calls) {
+    const data = call.service_data || {};
+    if (key === "planned_hvac_mode" && call.service === "set_hvac_mode") return data.hvac_mode;
+    if (key === "planned_temperature" && call.service === "set_temperature") return data.temperature;
+  }
+  return action?.details?.[key] ?? null;
+}
+
+function startupBlockNotice(actions) {
+  return actions.some((action) => action?.details?.gate_reason === "startup_quiet_period")
+    ? `<div class="notice">Blockiert durch Start-Ruhephase</div>`
+    : "";
+}
+
+function renderApplySummary(lastApply) {
+  const actions = Array.isArray(lastApply?.actions) ? lastApply.actions : [];
+  if (!actions.length) return `<div class="notice">Noch kein Apply- oder Dry-Run-Ergebnis vorhanden.</div>`;
+  const rows = actions.map((action) => {
+    const gateReason = action.details?.gate_reason || action.details?.gate_status || "none";
+    return `<tr>
+      <td class="mono">${esc(action.zone)}</td>
+      <td>${statusChip(action.status)}</td>
+      <td class="mono">${esc(action.reason || "missing")}</td>
+      <td class="mono">${esc(gateReason)}</td>
+      <td class="mono">${esc(action.target_entity_id || "missing")}</td>
+      <td class="mono">${esc(asText(plannedFromCalls(action, "planned_hvac_mode"), "none"))}</td>
+      <td class="mono">${esc(asText(plannedFromCalls(action, "planned_temperature"), "none"))}</td>
+    </tr>`;
+  }).join("");
+  return `${startupBlockNotice(actions)}<div class="table-wrap"><table class="apply-summary">
+    <thead><tr><th>Zone</th><th>Status</th><th>Reason</th><th>Gate</th><th>Target Entity</th><th>HVAC Mode</th><th>Temperatur</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
 function debugEndpointNotice(app) {
@@ -668,17 +721,19 @@ function renderApply(hass, app) {
   </div>
   <div class="section card">
     <h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>
-    ${jsonBlock(lastApply || "not run yet")}
+    ${renderApplySummary(lastApply)}
+    ${lastApply ? jsonDetails("Details als JSON anzeigen", lastApply) : ""}
   </div>
   <div class="section card">
     <h2>${icon("mdi:format-list-checks")}Geplante Dry-Run-Service-Calls</h2>
-    ${jsonBlock((lastApply?.dry_run ? lastApply.actions : []).map((a) => ({
+    ${lastApply?.dry_run ? renderApplySummary(lastApply) : `<div class="notice">Kein Dry Run aktiv oder noch nicht ausgefuehrt.</div>`}
+    ${lastApply?.dry_run ? jsonDetails("Dry-Run-Service-Calls als JSON anzeigen", lastApply.actions.map((a) => ({
       zone: a.zone,
       reason: a.reason,
       target_entity_id: a.target_entity_id,
       service_calls: a.service_calls,
       details: a.details,
-    })))}
+    }))) : ""}
   </div>`;
 }
 
@@ -721,13 +776,13 @@ function renderDebug(hass, app) {
     || Object.values(planMap).map((p) => p.apply_block_reason).filter(Boolean).join(", ")
     || "none";
   return `<div class="grid cols-2">
-    <div class="card"><h2>${icon("mdi:routes")}Letzter Decision Path</h2>${jsonBlock(paths)}</div>
-    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonBlock(thresholds(hass, app))}</div>
-    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonBlock(contextSnapshot(hass, app))}</div>
-    <div class="card"><h2>${icon("mdi:file-tree-outline")}Letzter Plan JSON</h2>${jsonBlock(planMap)}</div>
-    <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>${jsonBlock(payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}</div>
+    <div class="card"><h2>${icon("mdi:routes")}Letzter Decision Path</h2>${jsonDetails("Decision Path als JSON anzeigen", paths)}</div>
+    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonDetails("Thresholds als JSON anzeigen", thresholds(hass, app))}</div>
+    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonDetails("Context als JSON anzeigen", contextSnapshot(hass, app))}</div>
+    <div class="card"><h2>${icon("mdi:file-tree-outline")}Letzter Plan JSON</h2>${jsonDetails("Plaene als JSON anzeigen", planMap)}</div>
+    <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>${renderApplySummary(payload.last_apply_result)}${jsonDetails("Apply-Versuch als JSON anzeigen", payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}</div>
     <div class="card"><h2>${icon("mdi:block-helper")}Letzter Skip-/Blockgrund</h2>${kv("reason", skipReason)}</div>
-    <div class="card"><h2>${icon("mdi:fingerprint")}Hash-Basis</h2>${jsonBlock(Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
+    <div class="card"><h2>${icon("mdi:fingerprint")}Hash-Basis</h2>${jsonDetails("Hash-Basis als JSON anzeigen", Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
       zone: plan.zone,
       profile: plan.profile,
       target_temperature: plan.target_temperature,
@@ -735,7 +790,7 @@ function renderDebug(hass, app) {
       effective_outdoor_temperature: plan.effective_outdoor_temperature,
       plan_hash: plan.plan_hash,
     }])))}</div>
-    <div class="card"><h2>${icon("mdi:code-json")}Debug Summary</h2>${jsonBlock(dbg)}</div>
+    <div class="card"><h2>${icon("mdi:code-json")}Debug Summary</h2>${jsonDetails("Recorder-sichere Attribute anzeigen", dbg)}</div>
   </div>`;
 }
 
@@ -765,6 +820,7 @@ class BcpApp extends HTMLElement {
     this._debugError = "";
     this._debugFetchInFlight = false;
     this._debugLastFetch = 0;
+    this._lastHtml = "";
   }
 
   set hass(value) {
@@ -834,7 +890,7 @@ class BcpApp extends HTMLElement {
       content = `<div class="notice">Render-Fehler: ${esc(err.message || err)}</div>`;
     }
 
-    this.shadowRoot.innerHTML = `<style>${CSS}</style>
+    const html = `<style>${CSS}</style>
       <div class="app">
         <aside class="sidebar">
           <div class="brand">${icon("mdi:thermostat")}<div><b>Benni Climate Policy</b><small>Read-only Diagnose</small></div></div>
@@ -853,6 +909,9 @@ class BcpApp extends HTMLElement {
           <div id="content">${content}</div>
         </main>
       </div>`;
+    if (this._lastHtml === html) return;
+    this._lastHtml = html;
+    this.shadowRoot.innerHTML = html;
     this.shadowRoot.querySelectorAll("[data-view]").forEach((btn) => {
       btn.addEventListener("click", () => {
         this._view = btn.dataset.view;

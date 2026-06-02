@@ -47,17 +47,12 @@ def compact_debug_attributes(payload: Mapping[str, Any]) -> dict[str, Any]:
         "living_room_target_temp": living.get("target_temperature"),
         "living_room_policy_reason": living.get("reason"),
         "living_room_apply_blocker": living.get("apply_block_reason"),
-        "living_room_plan_hash": living.get("plan_hash"),
         "kitchen_mode": kitchen.get("profile"),
         "kitchen_target_temp": kitchen.get("target_temperature"),
         "kitchen_policy_reason": kitchen.get("reason"),
         "kitchen_apply_blocker": kitchen.get("apply_block_reason"),
-        "kitchen_plan_hash": kitchen.get("plan_hash"),
         "bathroom_mode": bathroom.get("profile"),
         "bathroom_target_temp": bathroom.get("target_temperature"),
-        "bathroom_policy_reason": bathroom.get("reason"),
-        "bathroom_apply_blocker": bathroom.get("apply_block_reason"),
-        "bathroom_plan_hash": bathroom.get("plan_hash"),
         "bathroom_fan_mode": fan.get("mode"),
         "bathroom_fan_reason": fan.get("reason") or fan.get("fan_reason"),
         "last_apply_status": last_apply.get("status"),
@@ -91,6 +86,9 @@ def full_debug_payload(
         "dry_run_diagnostics": last_apply if isinstance(last_apply, Mapping) and last_apply.get("dry_run") else None,
         "inputs": debug.get("inputs"),
         "effective_inputs": debug.get("effective_inputs"),
+        "weather_resolution": (debug.get("effective_inputs") or {}).get("weather_resolution")
+        if isinstance(debug.get("effective_inputs"), Mapping)
+        else None,
         "bathroom": debug.get("bathroom"),
         "debug": dict(debug),
     }
