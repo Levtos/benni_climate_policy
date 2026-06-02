@@ -13,8 +13,10 @@ from .const import (
     SERVICE_APPLY_NOW,
     SERVICE_APPLY_ZONE,
     SERVICE_DRY_RUN,
+    SERVICE_RESET_OPTIONS,
     SERVICE_RECALCULATE,
     SERVICE_SET_APPLY_ACTIVE,
+    SERVICE_UPDATE_OPTIONS,
 )
 
 PLATFORM_NAMES = ["sensor", "binary_sensor", "switch", "button"]
@@ -60,6 +62,8 @@ async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> boo
                 SERVICE_SET_APPLY_ACTIVE,
                 SERVICE_RECALCULATE,
                 SERVICE_DRY_RUN,
+                SERVICE_UPDATE_OPTIONS,
+                SERVICE_RESET_OPTIONS,
             ):
                 hass.services.async_remove(DOMAIN, service)
             from .view import async_remove_view
@@ -104,8 +108,31 @@ def _register_services(hass: "HomeAssistant") -> None:
         for coord in _coordinators(hass):
             await coord.async_apply(zone=zone, manual=True, dry_run=True)
 
+    async def _update_options(call: "ServiceCall") -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
+        updates = dict(call.data.get("options") or {})
+        reset_keys = list(call.data.get("reset_keys") or ())
+        try:
+            for coord in _coordinators(hass):
+                await coord.async_update_options(updates, reset_keys=reset_keys)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def _reset_options(call: "ServiceCall") -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
+        keys = list(call.data.get("keys") or ())
+        try:
+            for coord in _coordinators(hass):
+                await coord.async_update_options({}, reset_keys=keys)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+
     hass.services.async_register(DOMAIN, SERVICE_APPLY_NOW, _apply_now)
     hass.services.async_register(DOMAIN, SERVICE_APPLY_ZONE, _apply_zone)
     hass.services.async_register(DOMAIN, SERVICE_SET_APPLY_ACTIVE, _set_apply_active)
     hass.services.async_register(DOMAIN, SERVICE_RECALCULATE, _recalculate)
     hass.services.async_register(DOMAIN, SERVICE_DRY_RUN, _dry_run)
+    hass.services.async_register(DOMAIN, SERVICE_UPDATE_OPTIONS, _update_options)
+    hass.services.async_register(DOMAIN, SERVICE_RESET_OPTIONS, _reset_options)

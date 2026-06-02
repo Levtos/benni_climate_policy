@@ -51,11 +51,63 @@ const NAV = [
   ["context", "Context", "mdi:account-clock-outline"],
   ["zones", "Zones", "mdi:home-thermometer-outline"],
   ["bathroom", "Bathroom", "mdi:shower-head"],
-  ["thresholds", "Thresholds", "mdi:tune-vertical-variant"],
+  ["thresholds", "Tuning", "mdi:tune-vertical-variant"],
   ["effective", "Effective Temp", "mdi:thermometer-lines"],
   ["apply", "Apply", "mdi:play-circle-outline"],
   ["inputs", "Inputs", "mdi:database-search-outline"],
   ["debug", "Debug", "mdi:code-json"],
+];
+
+const THRESHOLD_BANDS = [
+  ["winter", "Tiefwinter", "Dez-Jan-Feb"],
+  ["late_winter", "Spätwinter", "März"],
+  ["spring", "Frühling", "April"],
+  ["late_spring", "Spätfrühling", "Mai"],
+  ["summer", "Sommer", "Jun-Jul-Aug"],
+  ["early_autumn", "Frühherbst", "September"],
+  ["autumn", "Herbst", "Oktober"],
+  ["late_autumn", "Spätherbst", "November"],
+];
+
+const TUNING_GROUPS = [
+  ["setpoints", "Setpoints", "mdi:thermostat", [
+    ["setpoint_off", "Off"],
+    ["setpoint_spar", "Spar"],
+    ["setpoint_komfort", "Komfort"],
+    ["setpoint_boost", "Boost"],
+  ]],
+  ["effective", "Effektive Außentemperatur", "mdi:thermometer-lines", [
+    ["floor_slab_tau", "Bodenplatten-Tau"],
+    ["lux_bonus_max", "Maximaler Lux-Bonus"],
+    ["lux_reference", "Lux-Referenz"],
+    ["feels_like_damping", "Dämpfung gefühlte Temperatur"],
+    ["forecast_weight", "Forecast-Gewichtung"],
+  ]],
+  ["boost", "Boost", "mdi:rocket-launch-outline", [
+    ["boost_delta", "Boost-Delta"],
+    ["boost_activation_delta", "Aktivierungsdelta zum Raum"],
+  ]],
+  ["apply", "Apply", "mdi:timer-sand", [
+    ["apply_cooldown_seconds", "Apply-Cooldown"],
+    ["startup_block_seconds", "Startup-Ruhezeit"],
+  ]],
+  ["bath", "Bad", "mdi:shower-head", [
+    ["bath_setpoint_protection", "Schutz-Setpoint"],
+    ["bath_setpoint_ground", "Grundwärme-Setpoint"],
+    ["bath_setpoint_comfort", "Komfort-Setpoint"],
+    ["bath_comfort_suppression_teff", "Komfort bis Teff"],
+    ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
+    ["bath_humidity_end_threshold", "End-Luftfeuchte"],
+    ["bath_dewpoint_acute_threshold", "Akut-Taupunkt"],
+    ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
+    ["bath_ah_delta_afterrun_off", "Nachlauf Ende AH-Delta"],
+    ["bath_ah_delta_stoss", "Stoßlüftung AH-Delta"],
+    ["bath_fan_heat_coordination_delta", "Heiz-/Lüfter-Delta"],
+    ["bath_fan_acute_max_minutes", "Akut max. Minuten"],
+    ["bath_fan_afterrun_max_minutes", "Nachlauf max. Minuten"],
+    ["bath_fan_stoss_interval_hours", "Stoßlüftung Intervall"],
+    ["bath_fan_stoss_duration_minutes", "Stoßlüftung Dauer"],
+  ]],
 ];
 
 const CSS = `
@@ -129,6 +181,19 @@ button.action { display: inline-grid; grid-template-columns: 18px auto; gap: 7px
 button.action:hover { border-color: var(--bcp-accent); }
 button.action.primary { background: var(--bcp-accent); color: var(--text-primary-color, #fff); border-color: var(--bcp-accent); }
 button.action[disabled] { opacity: .55; cursor: not-allowed; }
+.tuning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.matrix { min-width: 900px; }
+.matrix input[type="number"] { width: 92px; }
+.matrix td, .matrix th { vertical-align: middle; }
+.field-row { display: grid; grid-template-columns: minmax(150px, 1fr) 132px 86px; gap: 9px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--bcp-line); }
+.field-row:last-child { border-bottom: 0; }
+.field-row.dirty, tr.dirty { background: color-mix(in srgb, var(--bcp-warn) 9%, transparent); }
+.field-row input, .matrix input { min-height: 32px; border: 1px solid var(--bcp-line); border-radius: 6px; padding: 5px 7px; background: var(--bcp-surface); color: var(--bcp-text); font: inherit; }
+.field-row input:disabled, .matrix input:disabled { opacity: .55; background: var(--bcp-panel); }
+.source-pill { display: inline-flex; align-items: center; border: 1px solid var(--bcp-line); border-radius: 999px; padding: 2px 7px; font-size: 11px; color: var(--bcp-muted); white-space: nowrap; }
+.source-pill.user { color: var(--bcp-info); border-color: color-mix(in srgb, var(--bcp-info) 35%, var(--bcp-line)); }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.error-box { border: 1px solid color-mix(in srgb, var(--bcp-error) 45%, var(--bcp-line)); background: color-mix(in srgb, var(--bcp-error) 9%, var(--bcp-surface)); color: var(--bcp-error); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .notice { border: 1px dashed var(--bcp-line); border-radius: 8px; padding: 13px; color: var(--bcp-muted); background: color-mix(in srgb, var(--bcp-panel) 70%, transparent); }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--bcp-surface); border: 1px solid var(--bcp-line);
   border-radius: 8px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.22); z-index: 10; }
@@ -140,8 +205,9 @@ button.action[disabled] { opacity: .55; cursor: not-allowed; }
   .main { padding: 18px 14px 26px; }
   .head { display: block; }
   .chips { justify-content: flex-start; margin-top: 12px; }
-  .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; }
+  .cols-2, .cols-3, .cols-4, .tuning-grid { grid-template-columns: 1fr; }
   .kv { grid-template-columns: 1fr; gap: 3px; }
+  .field-row { grid-template-columns: 1fr; }
 }
 `;
 
@@ -202,6 +268,10 @@ function effectiveInputs(hass) {
 
 function thresholds(hass) {
   return debugPayload(hass).thresholds || {};
+}
+
+function tuningOptions(hass) {
+  return debugPayload(hass).tuning_options || {};
 }
 
 function bathroomDebug(hass) {
@@ -396,71 +466,105 @@ function renderBathroom(hass) {
   </div>`;
 }
 
-function renderThresholds(hass) {
-  const data = thresholds(hass);
-  const th = data.thresholds || {};
-  const setpoints = data.setpoints || {};
-  const hysteresis = data.hysteresis || {};
-  const teffParams = data.effective_temperature_parameters || {};
-  const cooldowns = data.apply_cooldowns || {};
-  const sources = data.sources || {};
-  const bandSources = sources.active_threshold_band || {};
-  const setpointSources = sources.setpoints || {};
-  const hysteresisSources = sources.hysteresis || {};
-  const teffSources = sources.effective_temperature_parameters || {};
-  const bands = data.threshold_bands || {};
-  const bandRows = Object.entries(bands).map(([key, band]) => `<tr>
-    <td class="mono">${esc(key)}</td>
-    <td>${esc(asText((band.months || []).join(", ")))}</td>
-    <td>${esc(asText(band.off_threshold))}<br><span class="muted">${esc(band.sources?.off_threshold || "default")}</span></td>
-    <td>${esc(asText(band.comfort_disabled ? "disabled" : band.comfort_threshold))}<br><span class="muted">${esc(band.sources?.comfort_threshold || band.sources?.comfort_disabled || "default")}</span></td>
-    <td>${esc(asText(band.boost_disabled ? "disabled" : band.boost_threshold))}<br><span class="muted">${esc(band.sources?.boost_threshold || band.sources?.boost_disabled || "default")}</span></td>
-  </tr>`).join("");
-  return `<div class="grid cols-3">
-    ${metric("Aktueller Monat", data.month ?? "missing")}
-    ${metric("Aktives Monatsband", data.active_month_band ?? "missing")}
-    ${metric("Komfort strukturell deaktiviert", data.comfort_structurally_disabled ?? "missing")}
-    ${metric("Boost strukturell deaktiviert", data.boost_structurally_disabled ?? "missing")}
+function sourcePill(source) {
+  const cls = source === "user option" ? "source-pill user" : "source-pill";
+  return `<span class="${cls}">${esc(source || "default")}</span>`;
+}
+
+function tuningDraftValue(app, data, key) {
+  if (app && app._tuningDraft && Object.prototype.hasOwnProperty.call(app._tuningDraft, key)) {
+    return app._tuningDraft[key];
+  }
+  return data.values?.[key];
+}
+
+function isDirty(app, data, key) {
+  if (!app || !app._tuningDraft || !Object.prototype.hasOwnProperty.call(app._tuningDraft, key)) return false;
+  return String(app._tuningDraft[key] ?? "") !== String(data.values?.[key] ?? "");
+}
+
+function numberInput(app, data, key, disabled = false) {
+  const value = tuningDraftValue(app, data, key);
+  return `<input type="number" step="0.1" data-tuning-key="${esc(key)}" value="${esc(value ?? "")}" ${disabled ? "disabled" : ""}>`;
+}
+
+function boolInput(app, data, key) {
+  const checked = tuningDraftValue(app, data, key) === true || tuningDraftValue(app, data, key) === "true";
+  return `<input type="checkbox" data-tuning-key="${esc(key)}" ${checked ? "checked" : ""}>`;
+}
+
+function fieldRows(app, data, fields) {
+  return fields.map(([key, label]) => {
+    const dirty = isDirty(app, data, key);
+    return `<div class="field-row ${dirty ? "dirty" : ""}">
+      <div><b>${esc(label)}</b><br><span class="mono muted">${esc(key)}</span></div>
+      ${numberInput(app, data, key)}
+      ${sourcePill(data.sources?.[key])}
+    </div>`;
+  }).join("");
+}
+
+function renderThresholds(hass, app) {
+  const data = tuningOptions(hass);
+  const current = thresholds(hass);
+  if (!data.values) {
+    return `<div class="notice">Tuning-Daten sind noch nicht verfügbar.</div>`;
+  }
+  app?._ensureTuningDraft(data);
+  const updateAvailable = serviceAvailable(hass, "update_options");
+  const resetAvailable = serviceAvailable(hass, "reset_options");
+  const dirtyKeys = app?._dirtyTuningKeys(data) || [];
+  const error = app?._tuningError || "";
+  const matrixRows = THRESHOLD_BANDS.map(([band, label, months]) => {
+    const bandData = data.threshold_bands?.[band] || {};
+    const keys = bandData.keys || {};
+    const comfortDisabled = tuningDraftValue(app, data, keys.comfort_disabled) === true || tuningDraftValue(app, data, keys.comfort_disabled) === "true";
+    const boostDisabled = tuningDraftValue(app, data, keys.boost_disabled) === true || tuningDraftValue(app, data, keys.boost_disabled) === "true";
+    const rowDirty = Object.values(keys).some((key) => isDirty(app, data, key));
+    return `<tr class="${rowDirty ? "dirty" : ""}">
+      <td><b>${esc(label)}</b><br><span class="mono muted">${esc(band)}</span></td>
+      <td>${esc(months)}</td>
+      <td>${numberInput(app, data, keys.off_threshold)}<br>${sourcePill(data.sources?.[keys.off_threshold])}</td>
+      <td>${numberInput(app, data, keys.comfort_threshold, comfortDisabled)}<br>${sourcePill(data.sources?.[keys.comfort_threshold])}</td>
+      <td>${numberInput(app, data, keys.boost_threshold, boostDisabled)}<br>${sourcePill(data.sources?.[keys.boost_threshold])}</td>
+      <td>${boolInput(app, data, keys.comfort_disabled)}<br>${sourcePill(data.sources?.[keys.comfort_disabled])}</td>
+      <td>${boolInput(app, data, keys.boost_disabled)}<br>${sourcePill(data.sources?.[keys.boost_disabled])}</td>
+      <td><button class="action" data-action="tuning-reset-band-${esc(band)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Zurücksetzen</span></button></td>
+    </tr>`;
+  }).join("");
+  const cards = TUNING_GROUPS.map(([section, title, iconName, fields]) => `<div class="card">
+    <div class="toolbar">
+      <h2>${icon(iconName)}${esc(title)}</h2>
+      <button class="action" data-action="tuning-reset-section-${esc(section)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Zurücksetzen</span></button>
+    </div>
+    ${fieldRows(app, data, fields)}
+  </div>`).join("");
+  return `${error ? `<div class="error-box">${esc(error)}</div>` : ""}
+  <div class="toolbar">
+    <div>
+      <b>Klima-Tuning</b><br>
+      <span class="muted">Gespeichert wird in den Integrationsoptionen. Ungespeicherte Änderungen sind markiert.</span>
+    </div>
+    <div class="actions">
+      ${actionButton("tuning-reset-all", "Alles zurücksetzen", "mdi:restore", false, resetAvailable)}
+      <button class="action primary" data-action="tuning-save" ${updateAvailable && dirtyKeys.length > 0 ? "" : "disabled"}>${icon("mdi:content-save-outline")}<span>${esc(dirtyKeys.length ? `Speichern (${dirtyKeys.length})` : "Speichern")}</span></button>
+    </div>
   </div>
-  <div class="section notice">Editierbar über Integrationsoptionen. Dieses Panel zeigt nur die aktuell aktiven gespeicherten Werte.</div>
-  <div class="section grid cols-2">
-    <div class="card">
-      <h2>${icon("mdi:thermometer-chevron-down")}Schwellenwerte</h2>
-      ${kvSource("Off-Grenze", th.off ?? "missing", bandSources.off_threshold)}
-      ${kvSource("Komfort-Grenze", th.comfort ?? "disabled", bandSources.comfort_threshold || bandSources.comfort_disabled)}
-      ${kvSource("Boost-Grenze", th.boost ?? "disabled", bandSources.boost_threshold || bandSources.boost_disabled)}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:thermostat")}Setpoints</h2>
-      ${kvSource("off", setpoints.off ?? "missing", setpointSources.off)}
-      ${kvSource("spar", setpoints.spar ?? "missing", setpointSources.spar)}
-      ${kvSource("komfort", setpoints.komfort ?? "missing", setpointSources.komfort)}
-      ${kvSource("boost", setpoints.boost ?? "missing", setpointSources.boost)}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:chart-bell-curve-cumulative")}Hysterese-Parameter</h2>
-      ${Object.entries(hysteresis).map(([k, v]) => kvSource(k, v, hysteresisSources[k])).join("") || kv("hysteresis", "missing")}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:tune")}Effective-Temperature-Parameter</h2>
-      ${Object.entries(teffParams).map(([k, v]) => kvSource(k, v, teffSources[k])).join("") || kv("effective temperature parameters", "missing")}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:timer-sand")}Apply-Cooldowns</h2>
-      ${kv("cooldown_seconds", cooldowns.cooldown_seconds ?? "missing")}
-      ${kv("startup_block_seconds", cooldowns.startup_block_seconds ?? "missing")}
-      ${kv("startup_ready", cooldowns.startup_ready ?? "missing")}
-      ${kv("last_apply_at", cooldowns.last_apply_at ?? {})}
-    </div>
+  <div class="grid cols-4">
+    ${metric("Aktueller Monat", current.month ?? "missing")}
+    ${metric("Aktives Monatsband", current.active_month_band ?? "missing")}
+    ${metric("Komfort deaktiviert", current.comfort_structurally_disabled ?? "missing")}
+    ${metric("Boost deaktiviert", current.boost_structurally_disabled ?? "missing")}
   </div>
   <div class="section card">
-    <h2>${icon("mdi:calendar-range")}Monatsbänder</h2>
+    <h2>${icon("mdi:calendar-range")}Monats-/Saison-Matrix</h2>
     <div class="table-wrap">
-      <table><thead><tr><th>Band</th><th>Monate</th><th>Off</th><th>Komfort</th><th>Boost</th></tr></thead><tbody>
-        ${bandRows || `<tr><td colspan="5" class="muted">missing</td></tr>`}
+      <table class="matrix"><thead><tr><th>Band</th><th>Monate</th><th>off_threshold</th><th>comfort_threshold</th><th>boost_threshold</th><th>comfort_disabled</th><th>boost_disabled</th><th>Reset</th></tr></thead><tbody>
+        ${matrixRows}
       </tbody></table>
     </div>
-  </div>`;
+  </div>
+  <div class="section tuning-grid">${cards}</div>`;
 }
 
 function renderEffective(hass) {
@@ -611,6 +715,9 @@ class BcpApp extends HTMLElement {
     this._hass = null;
     this._view = "overview";
     this._timer = null;
+    this._tuningDraft = null;
+    this._tuningBase = null;
+    this._tuningError = "";
   }
 
   set hass(value) {
@@ -647,7 +754,7 @@ class BcpApp extends HTMLElement {
     const effective = stateText(hass, ENTITIES.effectiveTemp);
     let content;
     try {
-      content = hass ? renderer(hass) : `<div class="notice">Home Assistant state wird geladen.</div>`;
+      content = hass ? renderer(hass, this) : `<div class="notice">Home Assistant state wird geladen.</div>`;
     } catch (err) {
       content = `<div class="notice">Render-Fehler: ${esc(err.message || err)}</div>`;
     }
@@ -680,6 +787,94 @@ class BcpApp extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => this._handleAction(btn.dataset.action));
     });
+    this.shadowRoot.querySelectorAll("[data-tuning-key]").forEach((input) => {
+      input.addEventListener("input", () => this._handleTuningInput(input));
+      input.addEventListener("change", () => this._handleTuningInput(input));
+    });
+  }
+
+  _ensureTuningDraft(data) {
+    const values = data.values || {};
+    const signature = JSON.stringify(values);
+    if (!this._tuningDraft || this._tuningBaseSignature !== signature) {
+      this._tuningDraft = { ...values };
+      this._tuningBase = { ...values };
+      this._tuningBaseSignature = signature;
+      this._tuningError = "";
+    }
+  }
+
+  _dirtyTuningKeys(data) {
+    const values = data.values || {};
+    const draft = this._tuningDraft || values;
+    return Object.keys(draft).filter((key) => String(draft[key] ?? "") !== String(values[key] ?? ""));
+  }
+
+  _handleTuningInput(input) {
+    if (!this._tuningDraft) return;
+    const key = input.dataset.tuningKey;
+    this._tuningDraft[key] = input.type === "checkbox" ? input.checked : input.value;
+    this._tuningError = "";
+    this._scheduleRender();
+  }
+
+  _thresholdKey(band, field) {
+    return `threshold_${band}_${field}`;
+  }
+
+  _validateNumber(key, value, { min = null, max = null, integer = false } = {}) {
+    if (value === "" || value === null || value === undefined) {
+      throw new Error(`${key} darf nicht leer sein`);
+    }
+    const number = Number(value);
+    if (!Number.isFinite(number)) throw new Error(`${key} muss eine Zahl sein`);
+    if (integer && !Number.isInteger(number)) throw new Error(`${key} muss eine ganze Zahl sein`);
+    if (min !== null && number < min) throw new Error(`${key} muss >= ${min} sein`);
+    if (max !== null && number > max) throw new Error(`${key} muss <= ${max} sein`);
+    return integer ? Math.trunc(number) : number;
+  }
+
+  _validateTuningDraft(data) {
+    const draft = this._tuningDraft || {};
+    const payload = {};
+    const dirty = this._dirtyTuningKeys(data);
+    const intKeys = new Set([
+      "apply_cooldown_seconds",
+      "startup_block_seconds",
+      "bath_fan_acute_max_minutes",
+      "bath_fan_afterrun_max_minutes",
+      "bath_fan_stoss_interval_hours",
+      "bath_fan_stoss_duration_minutes",
+    ]);
+    const weightKeys = new Set(["feels_like_damping", "forecast_weight"]);
+    dirty.forEach((key) => {
+      if (key.endsWith("_disabled")) {
+        payload[key] = draft[key] === true || draft[key] === "true";
+      } else if (key === "lux_reference") {
+        payload[key] = this._validateNumber(key, draft[key], { min: 1 });
+      } else if (weightKeys.has(key)) {
+        payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 1 });
+      } else if (intKeys.has(key)) {
+        payload[key] = this._validateNumber(key, draft[key], { min: 1, integer: true });
+      } else if (key.endsWith("_threshold") || key.startsWith("setpoint_") || key.startsWith("bath_setpoint_")) {
+        payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 35 });
+      } else {
+        payload[key] = this._validateNumber(key, draft[key]);
+      }
+    });
+    THRESHOLD_BANDS.forEach(([band]) => {
+      const off = this._validateNumber(this._thresholdKey(band, "off_threshold"), draft[this._thresholdKey(band, "off_threshold")], { min: 0, max: 35 });
+      const comfortDisabled = draft[this._thresholdKey(band, "comfort_disabled")] === true || draft[this._thresholdKey(band, "comfort_disabled")] === "true";
+      const boostDisabled = draft[this._thresholdKey(band, "boost_disabled")] === true || draft[this._thresholdKey(band, "boost_disabled")] === "true";
+      const comfortRaw = draft[this._thresholdKey(band, "comfort_threshold")];
+      const boostRaw = draft[this._thresholdKey(band, "boost_threshold")];
+      const comfort = comfortDisabled && comfortRaw === "" ? null : this._validateNumber(this._thresholdKey(band, "comfort_threshold"), comfortRaw, { min: 0, max: 35 });
+      const boost = boostDisabled && boostRaw === "" ? null : this._validateNumber(this._thresholdKey(band, "boost_threshold"), boostRaw, { min: 0, max: 35 });
+      if (!comfortDisabled && comfort > off) throw new Error(`${band}: comfort_threshold darf nicht über off_threshold liegen`);
+      if (!boostDisabled && comfortDisabled) throw new Error(`${band}: boost_threshold kann nicht aktiv sein, wenn comfort deaktiviert ist`);
+      if (!boostDisabled && boost > comfort) throw new Error(`${band}: boost_threshold darf nicht über comfort_threshold liegen`);
+    });
+    return payload;
   }
 
   async _handleAction(action) {
@@ -689,13 +884,47 @@ class BcpApp extends HTMLElement {
         await this._hass.callService(DOMAIN, "dry_run", {});
       } else if (action === "apply-global") {
         await this._hass.callService(DOMAIN, "apply_now", {});
+      } else if (action === "tuning-save") {
+        const payload = this._validateTuningDraft(tuningOptions(this._hass));
+        if (!Object.keys(payload).length) {
+          this._toast("Keine Änderungen");
+          return;
+        }
+        await this._hass.callService(DOMAIN, "update_options", { options: payload });
+        this._tuningDraft = null;
+        this._tuningBase = null;
+        this._toast("Tuning gespeichert");
+      } else if (action === "tuning-reset-all") {
+        const data = tuningOptions(this._hass);
+        const keys = Object.values(data.sections || {}).flat();
+        await this._hass.callService(DOMAIN, "reset_options", { keys });
+        this._tuningDraft = null;
+        this._tuningBase = null;
+        this._toast("Tuning zurückgesetzt");
+      } else if (action.startsWith("tuning-reset-section-")) {
+        const section = action.replace("tuning-reset-section-", "");
+        const keys = (tuningOptions(this._hass).sections || {})[section] || [];
+        await this._hass.callService(DOMAIN, "reset_options", { keys });
+        this._tuningDraft = null;
+        this._tuningBase = null;
+        this._toast("Abschnitt zurückgesetzt");
+      } else if (action.startsWith("tuning-reset-band-")) {
+        const band = action.replace("tuning-reset-band-", "");
+        const bandData = (tuningOptions(this._hass).threshold_bands || {})[band] || {};
+        const keys = Object.values(bandData.keys || {});
+        await this._hass.callService(DOMAIN, "reset_options", { keys });
+        this._tuningDraft = null;
+        this._tuningBase = null;
+        this._toast("Band zurückgesetzt");
       } else if (action.startsWith("dry-run-")) {
         await this._hass.callService(DOMAIN, "dry_run", { zone: action.replace("dry-run-", "") });
       } else if (action.startsWith("apply-")) {
         await this._hass.callService(DOMAIN, "apply_now", { zone: action.replace("apply-", "") });
       }
-      this._toast("Service ausgelöst");
+      if (!action.startsWith("tuning-")) this._toast("Service ausgelöst");
     } catch (err) {
+      this._tuningError = err.message || String(err);
+      this._scheduleRender();
       this._toast(`Fehler: ${err.message || err}`);
     }
   }

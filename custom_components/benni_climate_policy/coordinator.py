@@ -64,6 +64,7 @@ from .models import (
 )
 from .options import apply_cooldown_seconds_from_config
 from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_tuning_from_options, policy_visibility_snapshot
+from .tuning_options import tuning_options_snapshot, validated_options_update
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -370,6 +371,16 @@ class ClimatePolicyCoordinator:
         )
         await self.async_evaluate(auto_apply=bool(value))
 
+    async def async_update_options(
+        self,
+        updates: dict[str, Any] | None = None,
+        *,
+        reset_keys: list[str] | tuple[str, ...] = (),
+    ) -> None:
+        new_options = validated_options_update(self.entry.options, updates or {}, reset_keys=reset_keys)
+        self.hass.config_entries.async_update_entry(self.entry, options=new_options)
+        await self.async_evaluate(auto_apply=False)
+
     async def async_apply(
         self,
         *,
@@ -518,6 +529,7 @@ class ClimatePolicyCoordinator:
                     },
                 },
             },
+            "tuning_options": tuning_options_snapshot(self.entry.options),
             "last_applied_hash": dict(self.last_applied_hash),
             "last_apply_at": {
                 zone: value.isoformat() if value else None
