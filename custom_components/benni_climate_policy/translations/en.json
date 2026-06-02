@@ -21,11 +21,12 @@
       },
       "environment": {
         "title": "Weather & Effective Temperature",
-        "description": "Select outdoor, weather, sun, and readiness inputs for effective temperature diagnostics.",
+        "description": "Select outdoor, weather, sun, and readiness inputs. Forecast +3h can be read from a weather entity; feels-like is optional and falls back to outdoor temperature.",
         "data": {
           "outdoor_temperature": "Outdoor temperature",
+          "weather_entity": "Weather entity",
           "outdoor_feels_like": "Feels-like outdoor temperature",
-          "forecast_temperature_3h": "Forecast temperature +3h",
+          "forecast_temperature_3h": "Forecast temperature +3h sensor",
           "weather_condition": "Weather condition",
           "outdoor_lux": "Outdoor illuminance",
           "sun_entity": "Sun entity",
@@ -112,11 +113,12 @@
       },
       "environment": {
         "title": "Weather & Effective Temperature",
-        "description": "Review or change the outdoor and weather entities.",
+        "description": "Review or change outdoor and weather entities. Forecast +3h can be read from a weather entity; feels-like is optional and otherwise falls back to outdoor temperature.",
         "data": {
           "outdoor_temperature": "Outdoor temperature",
+          "weather_entity": "Weather entity",
           "outdoor_feels_like": "Feels-like outdoor temperature",
-          "forecast_temperature_3h": "Forecast temperature +3h",
+          "forecast_temperature_3h": "Forecast temperature +3h sensor",
           "weather_condition": "Weather condition",
           "outdoor_lux": "Outdoor illuminance",
           "sun_entity": "Sun entity",

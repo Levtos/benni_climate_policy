@@ -59,8 +59,8 @@ Repo-/Namenshinweis plausibel, `unclear` = nicht sicher zuordenbar, `conflict`
 | Wetter-Entity | `weather.dwd_home` | `partlycloudy` | confirmed |
 | Aussenhelligkeit Lux | `sensor.garden_illuminance_atomic` | live vorhanden | confirmed |
 | Sonnen-Elevation | `sun.sun` | live per Domain-Suche vorhanden | confirmed |
-| DWD Forecast +3h | nicht gefunden | n/a | unclear |
-| gefuehlte Aussentemperatur | kein echter DWD-Input gefunden; alter Combined berechnet selbst | n/a | unclear |
+| DWD Forecast +3h | `weather.dwd_home` via `weather.get_forecasts(type=hourly)` | live read-only Forecast-Service vorhanden | confirmed |
+| gefuehlte Aussentemperatur | keine echte DWD-/MOSMIX-Entity gefunden; Fallback auf reale Aussentemperatur | n/a | confirmed fallback |
 
 ## Raumklima-Quellen
 
@@ -84,6 +84,7 @@ Repo-/Namenshinweis plausibel, `unclear` = nicht sicher zuordenbar, `conflict`
 
 - Repo/YAML erwartet `climate.living_thermostat`, `climate.kitchen_thermostat`, `climate.bath_thermostat`; Live-HA zeigt drei Eve-Thermo-Entities mit generischen IDs. Bewertung: `conflict`; Config Flow muss manuelle Raumzuordnung erzwingen.
 - Alte `sensor.climate_*_combined` existieren und liefern Werte, duerfen aber nicht finale Runtime-Abhaengigkeit werden. Bewertung: `confirmed reference`.
-- DWD Forecast +3h und echte gefuehlte Aussentemperatur wurden live nicht sicher gefunden. Bewertung: `unclear`; als optionale Entity-Inputs anbieten.
+- DWD Forecast +3h liegt nicht als Entity-State-Attribut vor, kann aber aus `weather.dwd_home` ueber `weather.get_forecasts(type=hourly)` read-only gelesen werden. Eine zweite DWD-Integration ist dafuer nicht noetig.
+- Eine echte gefuehlte Aussentemperatur wurde live nicht gefunden. Alte `*_combined` Feels-like-Sensoren bleiben Migration/Referenz; Runtime-Fallback ist reale Aussentemperatur.
 - Namen aus der Candidate Map duerfen nicht hart in Runtime-Logik uebernommen werden. Sie sind nur Vorschlaege und Fallback-Kandidaten im Resolver.
 

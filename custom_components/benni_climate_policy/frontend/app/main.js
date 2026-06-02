@@ -586,6 +586,9 @@ function renderEffective(hass, app) {
   const br = effectiveBreakdown(hass, app);
   const inp = effectiveInputs(hass, app);
   const sourceEntities = inp.source_entities || {};
+  const weatherResolution = inp.weather_resolution || {};
+  const forecastResolution = inp.forecast_resolution || weatherResolution.forecast || {};
+  const feelsLikeResolution = inp.feels_like_resolution || weatherResolution.feels_like || {};
   return `<div class="grid cols-2">
     <div class="card">
       <h2>${icon("mdi:database-eye-outline")}Inputs</h2>
@@ -609,6 +612,22 @@ function renderEffective(hass, app) {
     <div class="card">
       <h2>${icon("mdi:link-variant")}Source Entities</h2>
       ${Object.entries(sourceEntities).map(([k, v]) => kv(k, v)).join("") || kv("sources", "not exposed yet")}
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:weather-partly-cloudy")}Weather Resolver</h2>
+      ${kv("Forecast +3h Wert", forecastResolution.value ?? inp.forecast_temperature ?? "missing")}
+      ${kv("Forecast Quelle", forecastResolution.source ?? "missing")}
+      ${kv("Forecast Qualität", forecastResolution.quality ?? "missing")}
+      ${kv("Weather Entity", forecastResolution.weather_entity ?? sourceEntities.weather_entity ?? "missing")}
+      ${kv("Zielzeit now +3h", forecastResolution.target_time ?? "missing")}
+      ${kv("Forecast Zeitpunkt", forecastResolution.forecast_datetime ?? "missing")}
+      ${kv("Forecast Reason", forecastResolution.reason ?? "missing")}
+      ${kv("Forecast Fallback", forecastResolution.fallback_used ?? false)}
+      ${kv("Feels-like Wert", feelsLikeResolution.value ?? inp.feels_like_temperature ?? "missing")}
+      ${kv("Feels-like Quelle", feelsLikeResolution.source ?? "missing")}
+      ${kv("Feels-like Qualität", feelsLikeResolution.quality ?? "missing")}
+      ${kv("Feels-like Reason", feelsLikeResolution.reason ?? "missing")}
+      ${kv("Feels-like Fallback", feelsLikeResolution.fallback_used ?? false)}
     </div>
   </div>`;
 }

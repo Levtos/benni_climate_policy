@@ -62,6 +62,7 @@ from .const import (
     CONF_SUN,
     CONF_SYSTEM_READY,
     CONF_WEATHER_CONDITION,
+    CONF_WEATHER_ENTITY,
     CONF_ZONE_HUMIDITY,
     CONF_ZONE_TEMPERATURE,
     CONF_ZONE_THERMOSTAT,
@@ -92,6 +93,7 @@ from .policy import (
 )
 
 ENTITY = selector.EntitySelector(selector.EntitySelectorConfig())
+WEATHER = selector.EntitySelector(selector.EntitySelectorConfig(domain="weather"))
 CLIMATE = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
 SWITCH = selector.EntitySelector(selector.EntitySelectorConfig(domain="switch"))
 BOOL = selector.BooleanSelector()
@@ -122,6 +124,7 @@ STEP_CONTEXT = (
 )
 STEP_ENVIRONMENT = (
     CONF_OUTDOOR_TEMPERATURE,
+    CONF_WEATHER_ENTITY,
     CONF_OUTDOOR_FEELS_LIKE,
     CONF_FORECAST_TEMPERATURE,
     CONF_WEATHER_CONDITION,
@@ -193,6 +196,7 @@ SELECTORS: dict[str, Any] = {
     )
 }
 SELECTORS.update({
+    CONF_WEATHER_ENTITY: WEATHER,
     CONF_ZONE_THERMOSTAT.format(zone=ZONE_LIVING): CLIMATE,
     CONF_ZONE_THERMOSTAT.format(zone=ZONE_KITCHEN): CLIMATE,
     CONF_ZONE_THERMOSTAT.format(zone=ZONE_BATHROOM): CLIMATE,

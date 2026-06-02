@@ -33,6 +33,7 @@ from .const import (
     CONF_SUN,
     CONF_SYSTEM_READY,
     CONF_WEATHER_CONDITION,
+    CONF_WEATHER_ENTITY,
     CONF_ZONE_HUMIDITY,
     CONF_ZONE_TEMPERATURE,
     CONF_ZONE_THERMOSTAT,
@@ -65,6 +66,7 @@ from .models import (
 from .options import apply_cooldown_seconds_from_config
 from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_tuning_from_options, policy_visibility_snapshot
 from .tuning_options import tuning_options_snapshot, validated_options_update
+from .weather_resolver import WeatherResolution, WeatherResolver
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,6 +95,7 @@ def _input_role(key: str) -> str:
         CONF_OUTDOOR_TEMPERATURE,
         CONF_OUTDOOR_FEELS_LIKE,
         CONF_FORECAST_TEMPERATURE,
+        CONF_WEATHER_ENTITY,
         CONF_WEATHER_CONDITION,
         CONF_OUTDOOR_LUX,
         CONF_SUN,
@@ -127,6 +130,7 @@ class ClimatePolicyCoordinator:
         self._ha_started = False
         self._started_at = time.monotonic()
         self.decision: ClimateDecision | None = None
+        self.weather_resolution: WeatherResolution | None = None
         self.bathroom_fan_plan: BathroomFanPlan | None = None
         self.last_apply_result: ApplyResult | None = None
         apply_zones = (*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan")
@@ -249,10 +253,19 @@ class ClimatePolicyCoordinator:
     def effective_input_snapshot(self) -> dict[str, Any]:
         sun_entity = self.config.get(CONF_SUN)
         sun_state = self.hass.states.get(sun_entity) if sun_entity else None
+        weather_resolution = self.weather_resolution.as_dict() if self.weather_resolution else None
         return {
             "real_temperature": self._float_state(CONF_OUTDOOR_TEMPERATURE),
-            "feels_like_temperature": self._float_state(CONF_OUTDOOR_FEELS_LIKE),
-            "forecast_temperature": self._float_state(CONF_FORECAST_TEMPERATURE),
+            "feels_like_temperature": (
+                self.weather_resolution.feels_like_temperature
+                if self.weather_resolution
+                else self._float_state(CONF_OUTDOOR_FEELS_LIKE)
+            ),
+            "forecast_temperature": (
+                self.weather_resolution.forecast_temperature
+                if self.weather_resolution
+                else self._float_state(CONF_FORECAST_TEMPERATURE)
+            ),
             "weather_condition": self._state(CONF_WEATHER_CONDITION),
             "outdoor_lux": self._float_state(CONF_OUTDOOR_LUX),
             "sun_elevation": self._sun_elevation(),
@@ -260,10 +273,14 @@ class ClimatePolicyCoordinator:
                 "real_temperature": self.config.get(CONF_OUTDOOR_TEMPERATURE),
                 "feels_like_temperature": self.config.get(CONF_OUTDOOR_FEELS_LIKE),
                 "forecast_temperature": self.config.get(CONF_FORECAST_TEMPERATURE),
+                "weather_entity": self.config.get(CONF_WEATHER_ENTITY),
                 "weather_condition": self.config.get(CONF_WEATHER_CONDITION),
                 "outdoor_lux": self.config.get(CONF_OUTDOOR_LUX),
                 "sun": sun_entity,
             },
+            "forecast_resolution": weather_resolution.get("forecast") if weather_resolution else None,
+            "feels_like_resolution": weather_resolution.get("feels_like") if weather_resolution else None,
+            "weather_resolution": weather_resolution,
             "sun_state": sun_state.state if sun_state else None,
         }
 
@@ -289,11 +306,16 @@ class ClimatePolicyCoordinator:
         tuning = self.policy_tuning
         bath_tuning = self.bath_tuning
         context = ContextResolver(self.hass, self.config).resolve()
+        real_temperature = self._float_state(CONF_OUTDOOR_TEMPERATURE)
+        self.weather_resolution = await WeatherResolver(self.hass, self.config).async_resolve(
+            real_temperature=real_temperature,
+            now=now,
+        )
         effective = effective_outdoor_temperature(
             EffectiveTemperatureInput(
-                real_temperature=self._float_state(CONF_OUTDOOR_TEMPERATURE),
-                feels_like_temperature=self._float_state(CONF_OUTDOOR_FEELS_LIKE),
-                forecast_temperature=self._float_state(CONF_FORECAST_TEMPERATURE),
+                real_temperature=real_temperature,
+                feels_like_temperature=self.weather_resolution.feels_like_temperature,
+                forecast_temperature=self.weather_resolution.forecast_temperature,
                 weather_condition=self._state(CONF_WEATHER_CONDITION),
                 outdoor_lux=self._float_state(CONF_OUTDOOR_LUX),
                 sun_elevation=self._sun_elevation(),
