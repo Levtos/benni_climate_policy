@@ -39,4 +39,20 @@ dry_run:
             - bathroom
             - bathroom_fan
       required: false
+update_options:
+  fields:
+    options:
+      selector:
+        object:
+      required: false
+    reset_keys:
+      selector:
+        object:
+      required: false
+reset_options:
+  fields:
+    keys:
+      selector:
+        object:
+      required: true
 
