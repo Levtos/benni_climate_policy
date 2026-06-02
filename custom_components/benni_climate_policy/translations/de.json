@@ -34,7 +34,7 @@
       },
       "zones": {
         "title": "Zonen & Thermostate",
-        "description": "Ordne Raum-Sensoren und Thermostate zu. Bad-Eintraege sind Platzhalter bis zum Bad-Policy-PR.",
+        "description": "Ordne Raum-Sensoren, Thermostate und den Badluefter zu.",
         "data": {
           "living_room_temperature": "Wohnzimmer Temperatur",
           "living_room_humidity": "Wohnzimmer Luftfeuchte",
@@ -87,6 +87,7 @@
           "apply": "Apply Engine",
           "tuning_core": "Core Tuning",
           "tuning_effective": "Effektive Aussentemperatur",
+          "tuning_bathroom": "Bad Policy",
           "tuning_thresholds": "Monats-Schwellwerte",
           "windows": "Erweiterte Optionen",
           "diagnostics": "Diagnose"
@@ -181,6 +182,30 @@
           "lux_reference": "Lux-Referenz",
           "feels_like_damping": "Daempfung gefuehlte Temperatur",
           "forecast_weight": "Forecast-Gewichtung"
+        }
+      },
+      "tuning_bathroom": {
+        "title": "Bad Policy",
+        "description": "Passe Setpoints, Komfortfenster, Feuchte- und Luefterparameter fuer das Bad an.",
+        "data": {
+          "bath_setpoint_protection": "Bad Frost-/Schutz-Setpoint",
+          "bath_setpoint_ground": "Bad Grundwaerme-Setpoint",
+          "bath_setpoint_comfort": "Bad Komfort-Setpoint",
+          "bath_comfort_suppression_teff": "Bad Komfort nur bis effektiver Aussentemperatur",
+          "bath_bonus_teff_0": "Bad Bonus bei Teff <= 0",
+          "bath_bonus_teff_5": "Bad Bonus bei Teff <= 5",
+          "bath_bonus_teff_warm": "Bad Bonus/Malus bei Teff > 15",
+          "bath_humidity_acute_threshold": "Luefter Akut-Luftfeuchte",
+          "bath_humidity_end_threshold": "Luefter End-Luftfeuchte",
+          "bath_dewpoint_acute_threshold": "Luefter Akut-Taupunkt",
+          "bath_ah_delta_afterrun_on": "Nachlauf ab AH-Delta",
+          "bath_ah_delta_afterrun_off": "Nachlauf Ende unter AH-Delta",
+          "bath_ah_delta_stoss": "Stosslueftung ab AH-Delta",
+          "bath_fan_heat_coordination_delta": "Heiz-/Luefter-Koordination Delta",
+          "bath_fan_acute_max_minutes": "Akut maximale Laufzeit",
+          "bath_fan_afterrun_max_minutes": "Nachlauf maximale Laufzeit",
+          "bath_fan_stoss_interval_hours": "Stosslueftung Mindestintervall",
+          "bath_fan_stoss_duration_minutes": "Stosslueftung Dauer"
         }
       },
       "tuning_thresholds": {

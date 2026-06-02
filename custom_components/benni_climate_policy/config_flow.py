@@ -10,6 +10,28 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
+from .bathroom import (
+    BATH_OPTION_KEYS,
+    OPT_BATH_AH_DELTA_AFTERRUN_OFF,
+    OPT_BATH_AH_DELTA_AFTERRUN_ON,
+    OPT_BATH_AH_DELTA_STOSS,
+    OPT_BATH_BONUS_TEFF_0,
+    OPT_BATH_BONUS_TEFF_5,
+    OPT_BATH_BONUS_TEFF_WARM,
+    OPT_BATH_COMFORT_SUPPRESSION_TEFF,
+    OPT_BATH_DEWPOINT_ACUTE_THRESHOLD,
+    OPT_BATH_FAN_ACUTE_MAX_MINUTES,
+    OPT_BATH_FAN_AFTERRUN_MAX_MINUTES,
+    OPT_BATH_FAN_HEAT_COORDINATION_DELTA,
+    OPT_BATH_FAN_STOSS_DURATION_MINUTES,
+    OPT_BATH_FAN_STOSS_INTERVAL_HOURS,
+    OPT_BATH_HUMIDITY_ACUTE_THRESHOLD,
+    OPT_BATH_HUMIDITY_END_THRESHOLD,
+    OPT_BATH_SETPOINT_COMFORT,
+    OPT_BATH_SETPOINT_GROUND,
+    OPT_BATH_SETPOINT_PROTECTION,
+    bath_tuning_from_options,
+)
 from .const import (
     CONF_APPLY_ACTIVE,
     CONF_APPLY_COOLDOWN_SECONDS,
@@ -79,6 +101,11 @@ TEMP_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=30
 THRESHOLD_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=35, step=0.5, mode="box"))
 POS_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=100000, step=0.1, mode="box"))
 WEIGHT_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.05, mode="box"))
+PERCENT_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=0.5, mode="box"))
+SMALL_DELTA_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=-10, max=30, step=0.1, mode="box"))
+BATH_BONUS_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=-5, max=5, step=0.1, mode="box"))
+BATH_MINUTES = selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=240, step=1, mode="box"))
+BATH_HOURS = selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=48, step=1, mode="box"))
 
 STEP_CONTEXT = (
     CONF_CONTEXT_ACTIVITY,
@@ -138,6 +165,7 @@ STEP_TUNING_EFFECTIVE = (
     OPT_FEELS_LIKE_DAMPING,
     OPT_FORECAST_WEIGHT,
 )
+STEP_TUNING_BATHROOM = BATH_OPTION_KEYS
 STEP_TUNING_THRESHOLDS = tuple(
     threshold_option_key(band, field)
     for band in DEFAULT_THRESHOLD_BANDS
@@ -188,6 +216,26 @@ SELECTORS.update({
     OPT_FORECAST_WEIGHT: WEIGHT_FLOAT,
 })
 SELECTORS.update({
+    OPT_BATH_SETPOINT_PROTECTION: TEMP_FLOAT,
+    OPT_BATH_SETPOINT_GROUND: TEMP_FLOAT,
+    OPT_BATH_SETPOINT_COMFORT: TEMP_FLOAT,
+    OPT_BATH_COMFORT_SUPPRESSION_TEFF: THRESHOLD_FLOAT,
+    OPT_BATH_BONUS_TEFF_0: BATH_BONUS_FLOAT,
+    OPT_BATH_BONUS_TEFF_5: BATH_BONUS_FLOAT,
+    OPT_BATH_BONUS_TEFF_WARM: BATH_BONUS_FLOAT,
+    OPT_BATH_HUMIDITY_ACUTE_THRESHOLD: PERCENT_FLOAT,
+    OPT_BATH_HUMIDITY_END_THRESHOLD: PERCENT_FLOAT,
+    OPT_BATH_DEWPOINT_ACUTE_THRESHOLD: selector.NumberSelector(selector.NumberSelectorConfig(min=-20, max=40, step=0.5, mode="box")),
+    OPT_BATH_AH_DELTA_AFTERRUN_ON: SMALL_DELTA_FLOAT,
+    OPT_BATH_AH_DELTA_AFTERRUN_OFF: SMALL_DELTA_FLOAT,
+    OPT_BATH_AH_DELTA_STOSS: SMALL_DELTA_FLOAT,
+    OPT_BATH_FAN_HEAT_COORDINATION_DELTA: selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.1, mode="box")),
+    OPT_BATH_FAN_ACUTE_MAX_MINUTES: BATH_MINUTES,
+    OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: BATH_MINUTES,
+    OPT_BATH_FAN_STOSS_INTERVAL_HOURS: BATH_HOURS,
+    OPT_BATH_FAN_STOSS_DURATION_MINUTES: BATH_MINUTES,
+})
+SELECTORS.update({
     threshold_option_key(band, field): BOOL if field.endswith("_disabled") else THRESHOLD_FLOAT
     for band in DEFAULT_THRESHOLD_BANDS
     for field in (
@@ -225,6 +273,27 @@ def _defaults(hass, data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, An
         OPT_FEELS_LIKE_DAMPING: tuning.feels_like_damping,
         OPT_FORECAST_WEIGHT: tuning.forecast_weight,
     }
+    bath_tuning = bath_tuning_from_options({})
+    tuning_defaults.update({
+        OPT_BATH_SETPOINT_PROTECTION: bath_tuning.setpoint_protection,
+        OPT_BATH_SETPOINT_GROUND: bath_tuning.setpoint_ground,
+        OPT_BATH_SETPOINT_COMFORT: bath_tuning.setpoint_comfort,
+        OPT_BATH_COMFORT_SUPPRESSION_TEFF: bath_tuning.comfort_suppression_teff,
+        OPT_BATH_BONUS_TEFF_0: bath_tuning.bonus_teff_0,
+        OPT_BATH_BONUS_TEFF_5: bath_tuning.bonus_teff_5,
+        OPT_BATH_BONUS_TEFF_WARM: bath_tuning.bonus_teff_warm,
+        OPT_BATH_HUMIDITY_ACUTE_THRESHOLD: bath_tuning.humidity_acute_threshold,
+        OPT_BATH_HUMIDITY_END_THRESHOLD: bath_tuning.humidity_end_threshold,
+        OPT_BATH_DEWPOINT_ACUTE_THRESHOLD: bath_tuning.dewpoint_acute_threshold,
+        OPT_BATH_AH_DELTA_AFTERRUN_ON: bath_tuning.ah_delta_afterrun_on,
+        OPT_BATH_AH_DELTA_AFTERRUN_OFF: bath_tuning.ah_delta_afterrun_off,
+        OPT_BATH_AH_DELTA_STOSS: bath_tuning.ah_delta_stoss,
+        OPT_BATH_FAN_HEAT_COORDINATION_DELTA: bath_tuning.fan_heat_coordination_delta,
+        OPT_BATH_FAN_ACUTE_MAX_MINUTES: bath_tuning.fan_acute_max_minutes,
+        OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: bath_tuning.fan_afterrun_max_minutes,
+        OPT_BATH_FAN_STOSS_INTERVAL_HOURS: bath_tuning.fan_stoss_interval_hours,
+        OPT_BATH_FAN_STOSS_DURATION_MINUTES: bath_tuning.fan_stoss_duration_minutes,
+    })
     for band, config in tuning.threshold_bands.items():
         tuning_defaults.update({
             threshold_option_key(band, "off_threshold"): config.off_threshold,
@@ -324,6 +393,7 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
                 "environment",
                 "tuning_core",
                 "tuning_effective",
+                "tuning_bathroom",
                 "tuning_thresholds",
                 "apply",
                 "windows",
@@ -357,6 +427,9 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
 
     async def async_step_tuning_effective(self, user_input=None):
         return self._edit("tuning_effective", STEP_TUNING_EFFECTIVE, user_input)
+
+    async def async_step_tuning_bathroom(self, user_input=None):
+        return self._edit("tuning_bathroom", STEP_TUNING_BATHROOM, user_input)
 
     async def async_step_tuning_thresholds(self, user_input=None):
         return self._edit("tuning_thresholds", STEP_TUNING_THRESHOLDS, user_input)

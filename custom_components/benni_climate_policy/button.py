@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_KITCHEN, ZONE_LIVING
+from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_BATHROOM, ZONE_KITCHEN, ZONE_LIVING
 from .coordinator import ClimatePolicyCoordinator
 from .entity import ClimatePolicyEntity
 
@@ -17,7 +17,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         ApplyNowButton(coord, None),
         DryRunButton(coord),
     ]
-    entities.extend(ApplyNowButton(coord, zone) for zone in HEATING_ZONES)
+    entities.extend(ApplyNowButton(coord, zone) for zone in (*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan"))
     async_add_entities(entities)
 
 
@@ -28,8 +28,16 @@ class ApplyNowButton(ClimatePolicyEntity, ButtonEntity):
             name = "Climate Policy Apply Now"
             suffix = "apply_now"
         else:
-            display = "Living Room" if zone == ZONE_LIVING else "Kitchen" if zone == ZONE_KITCHEN else zone
-            name = f"{display} Climate Apply Now"
+            display = (
+                "Living Room"
+                if zone == ZONE_LIVING
+                else "Kitchen"
+                if zone == ZONE_KITCHEN
+                else "Bathroom Fan"
+                if zone == "bathroom_fan"
+                else "Bathroom"
+            )
+            name = f"{display} Apply Now" if zone == "bathroom_fan" else f"{display} Climate Apply Now"
             suffix = f"{zone}_apply_now"
         super().__init__(coord, name, suffix)
 

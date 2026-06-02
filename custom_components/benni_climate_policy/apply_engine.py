@@ -55,9 +55,11 @@ def _call(
     service: str,
     target_entity_id: str | None,
     data: dict[str, Any],
+    *,
+    domain: str = "climate",
 ) -> dict[str, Any]:
     return {
-        "domain": "climate",
+        "domain": domain,
         "service": service,
         "target": {"entity_id": target_entity_id} if target_entity_id else {},
         "service_data": dict(data),
@@ -192,6 +194,72 @@ class ApplyEngine:
             result.target_entity_id,
             result.plan_hash,
             calls,
+        )
+
+    async def async_apply_switch_plan(
+        self,
+        plan,
+        *,
+        target_entity_id: str | None,
+        gate: ApplyGateState,
+    ) -> ApplyActionResult:
+        result = evaluate_apply_gate(plan, target_entity_id, gate)
+        target_state = self.hass.states.get(target_entity_id) if target_entity_id else None
+        desired_state = getattr(plan, "target_switch_state", "off")
+        service = "turn_on" if desired_state == "on" else "turn_off"
+        call = _call(service, target_entity_id, {}, domain="switch")
+
+        if result.status == "dry_run":
+            hypothetical_gate = evaluate_apply_gate(plan, target_entity_id, replace(gate, dry_run=False))
+            if hypothetical_gate.status == "applied":
+                current = getattr(target_state, "state", None)
+                calls = [] if current == desired_state else [call]
+                reason = "already_at_target" if current == desired_state else "would_call_services"
+                details = {"current_state": current, "planned_state": desired_state}
+            elif hypothetical_gate.reason == "plan_unchanged":
+                calls, reason, details = [], "no_relevant_change", {"gate_reason": hypothetical_gate.reason}
+            else:
+                calls, reason, details = [], "blocked_by_gate", {
+                    "gate_status": hypothetical_gate.status,
+                    "gate_reason": hypothetical_gate.reason,
+                }
+            return ApplyActionResult(
+                result.zone,
+                "dry_run",
+                reason,
+                result.target_entity_id,
+                result.plan_hash,
+                calls,
+                details,
+            )
+        if result.status != "applied":
+            return result
+
+        if getattr(target_state, "state", None) == desired_state:
+            return ApplyActionResult(
+                result.zone,
+                "skipped",
+                "already_at_target",
+                result.target_entity_id,
+                result.plan_hash,
+                [],
+                {"current_state": desired_state, "planned_state": desired_state},
+            )
+        await self.hass.services.async_call(
+            "switch",
+            service,
+            {},
+            target={"entity_id": target_entity_id},
+            blocking=False,
+        )
+        return ApplyActionResult(
+            result.zone,
+            result.status,
+            result.reason,
+            result.target_entity_id,
+            result.plan_hash,
+            [call],
+            {"planned_state": desired_state},
         )
 
     async def async_apply_many(

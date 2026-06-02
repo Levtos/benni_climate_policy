@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from custom_components.benni_climate_policy.apply_engine import ApplyEngine, ApplyGateState, evaluate_apply_gate
+from custom_components.benni_climate_policy.bathroom import BathroomFanPlan
 from custom_components.benni_climate_policy.options import apply_cooldown_seconds_from_config
 from custom_components.benni_climate_policy.models import ZonePlan
 
@@ -86,7 +87,9 @@ class _FakeState:
 class _FakeStates:
     def __init__(self):
         self._states = {
-            "climate.living": _FakeState("off", {"hvac_modes": ["off", "heat"], "temperature": 18.0})
+            "climate.living": _FakeState("off", {"hvac_modes": ["off", "heat"], "temperature": 18.0}),
+            "switch.bath_fan": _FakeState("off"),
+            "switch.unavailable_fan": _FakeState("unavailable"),
         }
 
     def get(self, entity_id):
@@ -127,8 +130,79 @@ def test_dry_run_reports_planned_calls_without_writing():
     assert hass.services.calls == []
 
 
+def test_protection_profile_uses_heat_setpoint_not_off_mode():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    p = ZonePlan(
+        zone="bathroom",
+        profile="protection",
+        target_temperature=16.0,
+        raw_target_temperature=16.0,
+        reason="effective_temperature_missing_protection",
+    )
+
+    result = asyncio.run(engine.async_apply_plan(
+        p,
+        target_entity_id="climate.living",
+        gate=gate(dry_run=True, manual=True),
+    ))
+
+    assert result.status == "dry_run"
+    assert result.details["planned_hvac_mode"] == "heat"
+    assert result.details["planned_temperature"] == 16.0
+
+
 def test_apply_cooldown_option_is_used():
     assert apply_cooldown_seconds_from_config({"apply_cooldown_seconds": 120}) == 120
     assert apply_cooldown_seconds_from_config({"apply_cooldown_seconds": 0}) == 600
     assert apply_cooldown_seconds_from_config({"cooldown_seconds": 300}) == 300
+
+
+def test_switch_dry_run_reports_planned_call_without_writing():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    fan_plan = BathroomFanPlan(
+        zone="bathroom_fan",
+        mode="akut",
+        reason="bath_fan_acute_humidity_or_dewpoint",
+        target_switch_state="on",
+    )
+
+    result = asyncio.run(engine.async_apply_switch_plan(
+        fan_plan,
+        target_entity_id="switch.bath_fan",
+        gate=gate(dry_run=True, manual=True),
+    ))
+
+    assert result.status == "dry_run"
+    assert result.reason == "would_call_services"
+    assert result.service_calls == [{
+        "domain": "switch",
+        "service": "turn_on",
+        "target": {"entity_id": "switch.bath_fan"},
+        "service_data": {},
+    }]
+    assert result.details["planned_state"] == "on"
+    assert hass.services.calls == []
+
+
+def test_switch_unavailable_returns_readable_error():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    fan_plan = BathroomFanPlan(
+        zone="bathroom_fan",
+        mode="akut",
+        reason="bath_fan_acute_humidity_or_dewpoint",
+        target_switch_state="on",
+    )
+
+    result = asyncio.run(engine.async_apply_switch_plan(
+        fan_plan,
+        target_entity_id="switch.unavailable_fan",
+        gate=gate(manual=True, target_state="unavailable"),
+    ))
+
+    assert result.status == "error"
+    assert result.reason == "target_entity_unavailable"
+    assert hass.services.calls == []
 

@@ -9,7 +9,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_KITCHEN, ZONE_LIVING
+from .const import DATA_COORDINATOR, DOMAIN, HEATING_ZONES, ZONE_BATHROOM, ZONE_KITCHEN, ZONE_LIVING
 from .coordinator import ClimatePolicyCoordinator
 from .entity import ClimatePolicyEntity
 
@@ -22,7 +22,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         LastApplySensor(coord),
         DebugSummarySensor(coord),
     ]
-    for zone in HEATING_ZONES:
+    for zone in (*HEATING_ZONES, ZONE_BATHROOM):
         entities.extend([
             ZoneModeSensor(coord, zone),
             ZoneTargetTempSensor(coord, zone),
@@ -31,6 +31,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             ZoneLastAppliedPlanHashSensor(coord, zone),
             ZoneApplyReasonSensor(coord, zone),
         ])
+    entities.extend([
+        BathroomFanModeSensor(coord),
+        BathroomFanPlanHashSensor(coord),
+    ])
     async_add_entities(entities)
 
 
@@ -116,7 +120,7 @@ class ZoneSensorBase(ClimatePolicyEntity, SensorEntity):
 
     def __init__(self, coord: ClimatePolicyCoordinator, zone: str) -> None:
         self.zone = zone
-        display = "Living Room" if zone == ZONE_LIVING else "Kitchen" if zone == ZONE_KITCHEN else zone
+        display = "Living Room" if zone == ZONE_LIVING else "Kitchen" if zone == ZONE_KITCHEN else "Bathroom"
         super().__init__(coord, f"{display} Climate {self.label}", f"{zone}_{self.suffix}")
 
     @property
@@ -177,4 +181,38 @@ class ZoneApplyReasonSensor(ZoneSensorBase):
     @property
     def native_value(self):
         return self.plan.apply_block_reason if self.plan else "not_calculated"
+
+
+class BathroomFanSensorBase(ClimatePolicyEntity, SensorEntity):
+    suffix = ""
+    label = ""
+
+    def __init__(self, coord: ClimatePolicyCoordinator) -> None:
+        super().__init__(coord, f"Bathroom Fan {self.label}", f"bathroom_fan_{self.suffix}")
+
+    @property
+    def plan(self):
+        return self.coord.bathroom_fan_plan
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return self.plan.as_dict() if self.plan else {}
+
+
+class BathroomFanModeSensor(BathroomFanSensorBase):
+    suffix = "mode"
+    label = "Mode"
+
+    @property
+    def native_value(self):
+        return self.plan.mode if self.plan else "unknown"
+
+
+class BathroomFanPlanHashSensor(BathroomFanSensorBase):
+    suffix = "plan_hash"
+    label = "Plan Hash"
+
+    @property
+    def native_value(self):
+        return self.plan.plan_hash if self.plan else "unknown"
 

@@ -8,7 +8,7 @@ import json
 from typing import Any, Literal
 
 Quality = Literal["ok", "degraded", "missing", "unknown"]
-ClimateMode = Literal["off", "spar", "komfort", "boost", "grundwaerme"]
+ClimateMode = Literal["off", "spar", "komfort", "boost", "grundwaerme", "protection"]
 ApplyStatus = Literal["applied", "blocked", "skipped", "dry_run", "error"]
 
 

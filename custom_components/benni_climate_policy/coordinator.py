@@ -1,6 +1,7 @@
 """Coordinator for Benni Climate Policy."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 import logging
 import time
@@ -40,8 +41,17 @@ from .const import (
     DEFAULT_STARTUP_BLOCK_SECONDS,
     HEATING_ZONES,
     PRESET,
+    ZONE_BATHROOM,
     ZONE_KITCHEN,
     ZONE_LIVING,
+)
+from .bathroom import (
+    BathroomClimateInput,
+    BathroomFanPlan,
+    BathroomHumidityInput,
+    bath_tuning_from_options,
+    decide_bathroom_climate,
+    decide_bathroom_fan,
 )
 from .context_resolver import ContextResolver
 from .models import (
@@ -65,6 +75,12 @@ def _float(value: str | None) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _state_value(value: str | None) -> str | None:
+    if value in (None, "", "unknown", "unavailable", "none"):
+        return None
+    return str(value)
 
 
 def _input_role(key: str) -> str:
@@ -110,9 +126,12 @@ class ClimatePolicyCoordinator:
         self._ha_started = False
         self._started_at = time.monotonic()
         self.decision: ClimateDecision | None = None
+        self.bathroom_fan_plan: BathroomFanPlan | None = None
         self.last_apply_result: ApplyResult | None = None
-        self.last_applied_hash: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
-        self.last_apply_at: dict[str, datetime | None] = {zone: None for zone in HEATING_ZONES}
+        apply_zones = (*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan")
+        self.last_applied_hash: dict[str, str | None] = {zone: None for zone in apply_zones}
+        self.last_apply_at: dict[str, datetime | None] = {zone: None for zone in apply_zones}
+        self.last_bath_fan_active_at: datetime | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -133,6 +152,10 @@ class ClimatePolicyCoordinator:
     @property
     def policy_tuning(self):
         return policy_tuning_from_options(self.entry.options)
+
+    @property
+    def bath_tuning(self):
+        return bath_tuning_from_options(self.entry.options)
 
     @property
     def startup_ready(self) -> bool:
@@ -263,6 +286,7 @@ class ClimatePolicyCoordinator:
     async def async_evaluate(self, *, auto_apply: bool = False) -> ClimateDecision:
         now = dt_util.now()
         tuning = self.policy_tuning
+        bath_tuning = self.bath_tuning
         context = ContextResolver(self.hass, self.config).resolve()
         effective = effective_outdoor_temperature(
             EffectiveTemperatureInput(
@@ -283,7 +307,22 @@ class ClimatePolicyCoordinator:
         plans = {
             ZONE_LIVING: decide_zone(self._zone_input(ZONE_LIVING), context, effective, now, tuning=tuning),
             ZONE_KITCHEN: decide_zone(self._zone_input(ZONE_KITCHEN), context, effective, now, tuning=tuning),
+            ZONE_BATHROOM: decide_bathroom_climate(
+                self._bathroom_climate_input(),
+                context,
+                effective,
+                now,
+                bath_tuning,
+            ),
         }
+        self.bathroom_fan_plan = decide_bathroom_fan(
+            self._bathroom_humidity_input(),
+            plans[ZONE_BATHROOM],
+            now=now,
+            day_state=_state_value(context.day_state.value),
+            last_fan_active_at=self.last_bath_fan_active_at,
+            tuning=bath_tuning,
+        )
         self.decision = ClimateDecision(context, effective, plans, now, self.system_ready)
         self._notify()
         if auto_apply and self.apply_active:
@@ -309,6 +348,21 @@ class ClimatePolicyCoordinator:
             windows=windows,
         )
 
+    def _bathroom_climate_input(self) -> BathroomClimateInput:
+        return BathroomClimateInput(
+            room_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM)),
+            room_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM)),
+            thermostat_entity_id=self.config.get(CONF_ZONE_THERMOSTAT.format(zone=ZONE_BATHROOM)),
+        )
+
+    def _bathroom_humidity_input(self) -> BathroomHumidityInput:
+        return BathroomHumidityInput(
+            bathroom_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM)),
+            bathroom_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM)),
+            living_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING)),
+            living_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING)),
+        )
+
     async def async_set_apply_active(self, value: bool) -> None:
         self.hass.config_entries.async_update_entry(
             self.entry,
@@ -331,10 +385,31 @@ class ClimatePolicyCoordinator:
             self._notify()
             return self.last_apply_result
 
-        selected = [zone] if zone else list(HEATING_ZONES)
+        selected = [zone] if zone else [*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan"]
         now = dt_util.now()
         apply_specs = []
+        switch_specs = []
         for zone_id in selected:
+            if zone_id == "bathroom_fan":
+                plan = self.bathroom_fan_plan
+                if plan is None:
+                    continue
+                target = self.config.get(CONF_BATH_FAN)
+                target_state = self.hass.states.get(target).state if target and self.hass.states.get(target) else None
+                gate = ApplyGateState(
+                    apply_active=self.apply_active,
+                    manual=manual,
+                    dry_run=dry_run,
+                    system_ready=self.system_ready,
+                    startup_ready=self.startup_ready,
+                    cooldown_seconds=self.cooldown_seconds,
+                    now=now,
+                    target_state=target_state,
+                    last_applied_hash=self.last_applied_hash.get(zone_id),
+                    last_apply_at=self.last_apply_at.get(zone_id),
+                )
+                switch_specs.append((plan, target, gate))
+                continue
             plan = decision.zone(zone_id)
             if plan is None:
                 continue
@@ -355,16 +430,45 @@ class ClimatePolicyCoordinator:
             apply_specs.append((plan, target, gate))
 
         result = await self.apply_engine.async_apply_many(apply_specs)
+        switch_actions = [
+            await self.apply_engine.async_apply_switch_plan(plan, target_entity_id=target, gate=gate)
+            for plan, target, gate in switch_specs
+        ]
+        if switch_actions:
+            actions = [*result.actions, *switch_actions]
+            if any(a.status == "error" for a in actions):
+                status = "error"
+            elif any(a.status == "applied" for a in actions):
+                status = "applied"
+            elif all(a.status == "dry_run" for a in actions):
+                status = "dry_run"
+            elif any(a.status == "blocked" for a in actions):
+                status = "blocked"
+            else:
+                status = "skipped"
+            result = ApplyResult(status, status, actions, dry_run=all(a.status == "dry_run" for a in actions))
         if not dry_run:
             for action in result.actions:
-                plan = decision.zone(action.zone)
-                if plan:
-                    plan.apply_status = action.status
-                    plan.apply_block_reason = action.reason
+                if action.zone == "bathroom_fan":
+                    if self.bathroom_fan_plan:
+                        self.bathroom_fan_plan = replace(
+                            self.bathroom_fan_plan,
+                            apply_status=action.status,
+                            apply_block_reason=action.reason,
+                        )
+                    plan = self.bathroom_fan_plan
+                else:
+                    plan = decision.zone(action.zone)
+                    if plan:
+                        plan.apply_status = action.status
+                        plan.apply_block_reason = action.reason
                 if action.status == "applied":
                     self.last_applied_hash[action.zone] = action.plan_hash
                     self.last_apply_at[action.zone] = now
-                    if plan:
+                    if action.zone == "bathroom_fan":
+                        if self.bathroom_fan_plan and self.bathroom_fan_plan.target_switch_state == "on":
+                            self.last_bath_fan_active_at = now
+                    elif plan:
                         plan.last_applied = now.isoformat()
         self.last_apply_result = result
         self._notify()
@@ -372,6 +476,13 @@ class ClimatePolicyCoordinator:
 
     def zone_plan(self, zone: str) -> ZonePlan | None:
         return self.decision.zone(zone) if self.decision else None
+
+    def bathroom_debug(self) -> dict[str, Any]:
+        return {
+            "climate_plan": self.zone_plan(ZONE_BATHROOM).as_dict() if self.zone_plan(ZONE_BATHROOM) else None,
+            "fan_plan": self.bathroom_fan_plan.as_dict() if self.bathroom_fan_plan else None,
+            "tuning": self.bath_tuning.as_dict(),
+        }
 
     def debug_summary(self) -> str:
         if self.decision is None:
@@ -414,6 +525,7 @@ class ClimatePolicyCoordinator:
             },
             "last_apply_result": self.last_apply_result.as_dict() if self.last_apply_result else None,
             "effective_inputs": self.effective_input_snapshot(),
+            "bathroom": self.bathroom_debug(),
             "inputs": self.input_snapshot(),
         }
 
