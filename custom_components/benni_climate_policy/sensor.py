@@ -31,7 +31,6 @@ def _compact_zone_plan(plan) -> dict[str, Any]:
         "hysteresis_state": plan.hysteresis_state,
         "policy_config_hash": plan.policy_config_hash,
         "plan_hash": plan.plan_hash,
-        "last_calculated": plan.last_calculated,
         "last_applied": plan.last_applied,
     }
 
@@ -54,7 +53,6 @@ def _compact_fan_plan(plan) -> dict[str, Any]:
         "heating_fan_coordination_state": diagnostics.get("heating_fan_coordination_state"),
         "policy_config_hash": plan.policy_config_hash,
         "plan_hash": plan.plan_hash,
-        "last_calculated": plan.last_calculated,
     }
 
 
