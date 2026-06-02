@@ -169,6 +169,39 @@ def test_missing_forecast_uses_neutral_fallback():
     assert result.forecast.fallback_used is True
 
 
+def test_unavailable_weather_entity_does_not_call_forecast_service():
+    hass = _Hass(
+        {AUTO_WEATHER_ENTITY: "unavailable"},
+        {AUTO_WEATHER_ENTITY: {"forecast": [
+            {"datetime": "2026-06-02T17:00:00+00:00", "temperature": 15.0},
+            {"datetime": "2026-06-02T18:00:00+00:00", "temperature": 16.0},
+        ]}},
+    )
+
+    result = _run(WeatherResolver(hass, {}).async_resolve(
+        real_temperature=11.0,
+        now=datetime(2026, 6, 2, 14, tzinfo=timezone.utc),
+    ))
+
+    assert hass.services.calls == []
+    assert result.forecast_temperature == 11.0
+    assert result.forecast.source == "fallback"
+    assert result.forecast.reason == "forecast_entity_missing_or_invalid"
+
+
+def test_configured_unavailable_weather_entity_does_not_call_forecast_service():
+    hass = _Hass({"weather.dwd_home": "unavailable"})
+
+    result = _run(WeatherResolver(hass, {CONF_WEATHER_ENTITY: "weather.dwd_home"}).async_resolve(
+        real_temperature=12.0,
+        now=datetime(2026, 6, 2, 14, tzinfo=timezone.utc),
+    ))
+
+    assert hass.services.calls == []
+    assert result.forecast_temperature == 12.0
+    assert result.forecast.source == "fallback"
+
+
 def test_missing_feels_like_uses_real_temperature_fallback():
     result = fallback_feels_like(9.0)
 
