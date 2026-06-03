@@ -18,8 +18,24 @@ Die Integration registriert ein read-only Panel in der Home-Assistant-Sidebar:
 - Titel: `Climate Policy`
 - Direktpfad: `/benni-climate-policy`
 
-Das Panel zeigt Context, Zonenplaene, effektive Aussentemperatur, Apply-Status,
-konfigurierte Inputs und kompakte Debugdaten. Es veraendert keine Policy-Regeln.
+Das Panel ist als alltagstaugliches Climate-Cockpit aufgebaut und veraendert
+keine Policy-Regeln. Die Hauptnavigation ist bewusst reduziert:
+
+- `Uebersicht`: Hero-Zusammenfassung mit aktuellen Bedingungen, Konsequenzen
+  und zentralen Statuschips.
+- `Raeume`: Wohnzimmer, Kueche und Bad als Raumkarten mit Modus,
+  Zieltemperatur, wichtigstem Grund und einklappbaren Experten-Details.
+- `Automatik`: Auto-Apply-Status, Schnellaktionen, Dry Run und Vorschau
+  "Was wuerde jetzt passieren?".
+- `Tuning`: saisonale Strategie, Setpoints und Expertenparameter in ruhigeren
+  Karten statt Rohformular.
+- `Diagnose`: Performance, Context, Inputs, letzte Entscheidung, letzter Apply
+  und Hash-/Debugdaten als Expertenbereich.
+
+Der fruehere separate Bad-Bereich ist nicht mehr als Haupttab gefuehrt. Bad ist
+ein vollwertiger Raum in `Raeume`; Luefter-, Feuchte- und Bad-Spezialdaten
+bleiben ueber Experten-Details und Diagnose erreichbar. Context und Inputs sind
+ebenfalls nicht prominent, sondern in der Diagnose gebuendelt.
 
 ## Weather Resolver
 
