@@ -120,6 +120,26 @@ class ZoneInput:
     last_mode: str | None = None
 
 
+@dataclass(frozen=True)
+class RoomComfort:
+    label: str
+    reason: str
+    quality: Quality
+    perceived_temperature: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = {
+            "room_comfort_label": self.label,
+            "room_comfort_reason": self.reason,
+            "room_comfort_quality": self.quality,
+            "perceived_room_temperature": self.perceived_temperature,
+        }
+        return {
+            "room_comfort": payload,
+            **payload,
+        }
+
+
 @dataclass
 class ZonePlan:
     zone: str
@@ -132,6 +152,8 @@ class ZonePlan:
     source_entities: list[str] = field(default_factory=list)
     input_quality: Quality = "ok"
     effective_outdoor_temperature: float | None = None
+    floor_slab_delta: float = 0.0
+    room_comfort: RoomComfort | None = None
     is_boost_active: bool = False
     boost_until: str | None = None
     hysteresis_state: str | None = None
@@ -147,6 +169,8 @@ class ZonePlan:
             "zone": self.zone,
             "profile": self.profile,
             "target_temperature": self.target_temperature,
+            "raw_target_temperature": self.raw_target_temperature,
+            "floor_slab_delta": self.floor_slab_delta,
             "blocked_by": sorted(self.blocked_by),
             "effective_outdoor_temperature": self.effective_outdoor_temperature,
             "policy_config_hash": self.policy_config_hash,
@@ -163,7 +187,10 @@ class ZonePlan:
             "zone": self.zone,
             "profile": self.profile,
             "target_temperature": self.target_temperature,
+            "thermostat_target_temperature": self.target_temperature,
             "raw_target_temperature": self.raw_target_temperature,
+            "policy_target_temperature": self.raw_target_temperature,
+            "floor_slab_delta": self.floor_slab_delta,
             "final_target_temperature": self.target_temperature,
             "reason": self.reason,
             "decision_path": list(self.decision_path),
@@ -171,6 +198,7 @@ class ZonePlan:
             "input_quality": self.input_quality,
             "source_entities": list(self.source_entities),
             "effective_outdoor_temperature": self.effective_outdoor_temperature,
+            **(self.room_comfort.as_dict() if self.room_comfort else {}),
             "is_boost_active": self.is_boost_active,
             "boost_until": self.boost_until,
             "hysteresis_state": self.hysteresis_state,

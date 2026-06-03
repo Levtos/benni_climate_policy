@@ -179,6 +179,7 @@ STEP_TUNING_THRESHOLDS = tuple(
         "boost_threshold",
         "comfort_disabled",
         "boost_disabled",
+        "floor_slab_delta",
     )
 )
 
@@ -307,6 +308,7 @@ def _defaults(hass, data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, An
             threshold_option_key(band, "boost_threshold"): config.boost_threshold,
             threshold_option_key(band, "comfort_disabled"): config.comfort_disabled,
             threshold_option_key(band, "boost_disabled"): config.boost_disabled,
+            threshold_option_key(band, "floor_slab_delta"): config.floor_slab_delta,
         })
     for key in keys:
         if key in out:

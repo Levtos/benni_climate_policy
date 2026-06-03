@@ -16,7 +16,7 @@ const ENTITIES = {
 };
 const DEBUG_API_PATH = `${DOMAIN}/debug`;
 const DEBUG_REFRESH_MS = 60000;
-const DEBUG_VIEWS = new Set(["overview", "zones", "thresholds", "apply", "debug"]);
+const DEBUG_VIEWS = new Set(["overview", "zones", "weather", "thresholds", "apply", "debug"]);
 const JSON_CACHE = new WeakMap();
 
 const ZONES = {
@@ -67,17 +67,18 @@ const LIVING_AREA_WINDOWS = [
 const NAV = [
   ["overview", "Übersicht", "mdi:view-dashboard-outline"],
   ["zones", "Räume", "mdi:home-thermometer-outline"],
+  ["weather", "Wetter", "mdi:weather-partly-cloudy"],
   ["apply", "Automatik", "mdi:toggle-switch-outline"],
   ["thresholds", "Tuning", "mdi:tune-vertical-variant"],
   ["debug", "Diagnose", "mdi:alert-circle-outline"],
 ];
 
 const THRESHOLD_BANDS = [
-  ["winter", "Tiefwinter", "Dez-Jan-Feb"],
+  ["winter", "Winter", "Dez - Feb"],
   ["late_winter", "Spätwinter", "März"],
   ["spring", "Frühling", "April"],
   ["late_spring", "Spätfrühling", "Mai"],
-  ["summer", "Sommer", "Jun-Jul-Aug"],
+  ["summer", "Sommer", "Jun - Aug"],
   ["early_autumn", "Frühherbst", "September"],
   ["autumn", "Herbst", "Oktober"],
   ["late_autumn", "Spätherbst", "November"],
@@ -86,7 +87,7 @@ const THRESHOLD_BANDS = [
 const TUNING_GROUPS = [
   ["setpoints", "Setpoints", "mdi:thermostat", [
     ["setpoint_off", "Off"],
-    ["setpoint_spar", "Spar"],
+    ["setpoint_spar", "Eco"],
     ["setpoint_komfort", "Komfort"],
     ["setpoint_boost", "Boost"],
   ]],
@@ -107,7 +108,7 @@ const TUNING_GROUPS = [
   ]],
   ["bath", "Bad", "mdi:shower-head", [
     ["bath_setpoint_protection", "Schutz-Setpoint"],
-    ["bath_setpoint_ground", "Grundwärme-Setpoint"],
+    ["bath_setpoint_ground", "Bad Eco-Setpoint"],
     ["bath_setpoint_comfort", "Komfort-Setpoint"],
     ["bath_comfort_suppression_teff", "Komfort bis Teff"],
     ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
@@ -654,12 +655,64 @@ function displayValue(value, missing = "unbekannt") {
   return text;
 }
 
+function localDateTime(value, missing = "unbekannt") {
+  const text = asText(value, "");
+  if (!text || text === "missing" || text === "unknown" || text === "unavailable") return missing;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return displayValue(value, missing);
+  return date.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+function localTime(value, missing = "unbekannt") {
+  const text = asText(value, "");
+  if (!text || text === "missing" || text === "unknown" || text === "unavailable") return missing;
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return displayValue(value, missing);
+}
+
 function translatePresence(value) {
   const raw = String(value ?? "").toLowerCase();
   if (["zuhause", "home", "present", "daheim"].includes(raw)) return "Zuhause";
   if (["nicht_leer", "not_empty", "occupied"].includes(raw)) return "Haushalt nicht leer";
   if (["leer", "empty", "away", "not_home", "far"].includes(raw)) return "Niemand zuhause";
   return displayValue(value, "nicht geladen");
+}
+
+function translateContextValue(key, value) {
+  const raw = String(value ?? "").toLowerCase();
+  const maps = {
+    day_context: {
+      workday: "Werktag",
+      weekday: "Werktag",
+      weekend: "Wochenende",
+      holiday: "Feiertag",
+      free_time: "Freizeit",
+      fore_noon: "Vormittag",
+      afternoon: "Nachmittag",
+      evening: "Abend",
+      night: "Nacht",
+    },
+    day_state: {
+      workday: "Werktag",
+      weekday: "Werktag",
+      weekend: "Wochenende",
+      holiday: "Feiertag",
+      free_time: "Freizeit",
+      fore_noon: "Vormittag",
+      afternoon: "Nachmittag",
+      evening: "Abend",
+      night: "Nacht",
+    },
+    bio_state: {
+      awake: "Wach",
+      sleep: "Schlaf",
+      sleeping: "Schlaf",
+      tired: "Müde",
+      active: "Aktiv",
+    },
+  };
+  return maps[key]?.[raw] || displayValue(value, "nicht geladen");
 }
 
 function presenceSummary(hass, app) {
@@ -690,14 +743,15 @@ function modeLabel(value) {
   const map = {
     off: "Aus",
     aus: "Aus",
-    spar: "Spar",
+    spar: "Eco",
+    eco: "Eco",
     comfort: "Komfort",
     komfort: "Komfort",
     boost: "Boost",
-    ground: "Grundwärme",
-    ground_heat: "Grundwärme",
-    grundwaerme: "Grundwärme",
-    grundwärme: "Grundwärme",
+    ground: "Eco",
+    ground_heat: "Eco",
+    grundwaerme: "Eco",
+    grundwärme: "Eco",
     protection: "Schutz",
   };
   return map[raw] || displayValue(value);
@@ -723,9 +777,9 @@ function compactReason(reason, zone = "") {
   const raw = String(reason ?? "").toLowerCase();
   if (!raw || raw === "missing" || raw === "none" || raw === "unavailable") return "Keine besondere Einschränkung erkannt.";
   if (raw.includes("window") || raw.includes("fenster")) return "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.";
-  if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv: Sparmodus statt Komfortheizen.";
-  if (raw.includes("spar")) return "Sparmodus ist aktiv.";
-  if (raw.includes("ground") || raw.includes("grund")) return "Grundwärme gegen Auskühlung und Feuchte.";
+  if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv: Eco statt Komfortheizen.";
+  if (raw.includes("spar") || raw.includes("eco")) return "Eco-Modus ist aktiv.";
+  if (raw.includes("ground") || raw.includes("grund")) return "Mindestwärme gegen Auskühlung und Feuchte.";
   if (raw.includes("comfort") || raw.includes("komfort")) return "Komfortmodus ist erlaubt.";
   if (raw.includes("boost")) return "Boost ist gerade möglich oder angefragt.";
   if (raw.includes("cooldown")) return "Cooldown verhindert zu häufiges Anwenden.";
@@ -766,6 +820,62 @@ function weatherLabel(hass, app) {
   return "warm";
 }
 
+function weatherConditionLabel(value) {
+  const raw = String(value ?? "").toLowerCase();
+  const map = {
+    clear: "Klar",
+    sunny: "Sonnig",
+    partlycloudy: "Teilweise bewölkt",
+    cloudy: "Bewölkt",
+    overcast: "Bedeckt",
+    rainy: "Regen",
+    pouring: "Starker Regen",
+    lightning: "Gewitter",
+    lightning_rainy: "Gewitterregen",
+    snowy: "Schnee",
+    snowy_rainy: "Schneeregen",
+    fog: "Nebel",
+    windy: "Windig",
+    exceptional: "Außergewöhnlich",
+  };
+  return map[raw] || displayValue(value, "nicht geladen");
+}
+
+function qualityLabel(value) {
+  const raw = String(value ?? "").toLowerCase();
+  const map = {
+    measured: "gemessen",
+    estimated: "geschätzt",
+    fallback: "Fallback",
+    missing: "nicht geladen",
+    ok: "ok",
+  };
+  return map[raw] || displayValue(value, "nicht geladen");
+}
+
+function seasonBandLabel(value) {
+  const raw = String(value ?? "").toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return THRESHOLD_BANDS.find(([band]) => band === raw)?.[1] || displayValue(value);
+}
+
+function policyTarget(plan) {
+  return plan.policy_target_temperature ?? plan.raw_target_temperature ?? plan.target_temperature;
+}
+
+function thermostatTarget(plan) {
+  return plan.thermostat_target_temperature ?? plan.target_temperature;
+}
+
+function deltaText(value) {
+  const number = numberLike(value);
+  if (number === null) return displayValue(value);
+  return `${number >= 0 ? "+" : ""}${number.toFixed(1)} °C`;
+}
+
+function roomComfort(plan) {
+  return plan.room_comfort || {};
+}
+
 function modeClass(mode) {
   const raw = String(mode ?? "").toLowerCase();
   if (raw.includes("spar")) return "green";
@@ -794,16 +904,23 @@ function roomFact(label, value) {
 function consequenceItems(hass, app) {
   const bath = bathroomDebug(hass, app);
   const fan = bath.fan_plan || {};
-  return Object.entries(ZONES).map(([zone, meta]) => {
+  const zoneItems = Object.entries(ZONES).map(([zone, meta]) => {
     const plan = zonePlan(hass, zone, app);
     return `<div class="reason">
       ${icon(zoneIcon(zone))}
-      <div><small>${esc(meta.label)} · ${esc(primaryConsequence(plan, zone))}</small><b>${esc(modeLabel(plan.profile))} auf ${esc(tempText(plan.target_temperature))}</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
+      <div><small>${esc(meta.label)} · ${esc(primaryConsequence(plan, zone))}</small><b>${esc(modeLabel(plan.profile))} auf ${esc(tempText(policyTarget(plan)))}</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
     </div>`;
-  }).join("") + `<div class="reason">
+  }).join("");
+  const fanMode = String(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode, "missing")).toLowerCase();
+  const fanReason = fan.fan_reason ?? fan.reason ?? fan.apply_block_reason ?? "";
+  const showFan = !["off", "aus", "idle", "missing", "unknown", "unavailable"].includes(fanMode)
+    || String(fanReason).toLowerCase().includes("humidity")
+    || String(fanReason).toLowerCase().includes("feuchte")
+    || String(fanReason).toLowerCase().includes("dew");
+  return zoneItems + (showFan ? `<div class="reason">
     ${icon("mdi:fan")}
     <div><small>Badlüfter</small><b>${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</b><br><span class="muted">${esc(compactReason(fan.fan_reason ?? fan.reason ?? fan.apply_block_reason ?? "Koordiniert mit Bad-Feuchte und Heizung."))}</span></div>
-  </div>`;
+  </div>` : "");
 }
 
 function overviewSentence(hass, app) {
@@ -827,19 +944,14 @@ function overviewSentence(hass, app) {
 function primaryConsequence(plan, zone) {
   const reason = String(primaryReason(plan, zone)).toLowerCase();
   if (reason.includes("window")) return "Heizen blockiert";
-  if (reason.includes("summer") || String(plan.profile).toLowerCase().includes("spar")) return "Sparmodus aktiv";
-  if (String(plan.profile).toLowerCase().includes("grund")) return "Grundwärme aktiv";
+  if (reason.includes("summer") || String(plan.profile).toLowerCase().includes("spar")) return "Eco aktiv";
+  if (String(plan.profile).toLowerCase().includes("grund")) return "Eco aktiv";
   return modeLabel(plan.profile);
 }
 
 function weatherChip(hass, app) {
   const inputs = effectiveInputs(hass, app);
-  const weather = displayValue(inputs.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "Wetter"));
-  const windowStatus = livingAreaWindowStatus(hass);
-  if (windowStatus.blocked) {
-    return `${weather} · ${windowStatus.label}`;
-  }
-  return weather;
+  return weatherConditionLabel(inputs.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "Wetter"));
 }
 
 function policyConsequence(hass, app) {
@@ -867,6 +979,7 @@ function renderOverview(hass, app) {
     id.includes("climate_policy") || id.includes("climate_effective") || id.includes("climate_system_ready"));
   const br = effectiveBreakdown(hass, app);
   const inputs = effectiveInputs(hass, app);
+  const ctx = contextSnapshot(hass, app);
   return `
     <section class="hero">
       <div class="hero-icon">${icon("mdi:emoticon-outline")}</div>
@@ -893,8 +1006,8 @@ function renderOverview(hass, app) {
       <div class="card">
         <h2>${icon("mdi:account-clock-outline")}Kontext</h2>
         ${kv("Anwesenheit", presenceSummary(hass, app))}
-        ${kv("Tagesstatus", contextSnapshot(hass, app).day_context?.value ?? "nicht geladen")}
-        ${kv("Bio-Status", contextSnapshot(hass, app).bio_state?.value ?? "nicht geladen")}
+        ${kv("Tagesstatus", translateContextValue("day_context", ctx.day_context?.value))}
+        ${kv("Bio-Status", translateContextValue("bio_state", ctx.bio_state?.value))}
       </div>
       <div class="card">
         <h2>${icon("mdi:weather-partly-cloudy")}Außenbedingungen</h2>
@@ -905,9 +1018,9 @@ function renderOverview(hass, app) {
       <div class="card">
         <h2>${icon("mdi:thermometer-lines")}Teff-Breakdown</h2>
         ${kv("Licht (Lux)", inputs.outdoor_lux ?? "nicht geladen")}
-        ${kv("Wetter-Offset", tempText(br.weather_offset ?? "missing"))}
-        ${kv("Forecast-Offset", tempText(br.forecast_offset ?? "missing"))}
-        ${kv("Finale Teff", tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
+        ${kv("Wetterkorrektur", tempText(br.weather_offset ?? "missing"))}
+        ${kv("Prognosekorrektur", tempText(br.forecast_offset ?? "missing"))}
+        ${kv("Effektive Außentemperatur", tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
       </div>
       <div class="card">
         <h2>${icon("mdi:shield-check-outline")}Konsequenzen</h2>
@@ -928,29 +1041,29 @@ function renderContext(hass, app) {
     return debugEndpointNotice(app);
   }
   const labels = {
-    activity_state: "Activity State",
-    bio_state: "Bio State",
-    day_context: "Day Context",
-    day_state: "Day State",
-    presence_band: "Presence Band",
-    presence_household: "Presence Household",
-    presence_personal: "Presence Personal",
-    presence_preheat_active: "Presence Preheat Active",
-    presence_transition: "Presence Transition",
-    planned_wakeup_time: "Planned Wakeup Time",
+    activity_state: "Aktivität",
+    bio_state: "Bio-Status",
+    day_context: "Tageskontext",
+    day_state: "Tagesstatus",
+    presence_band: "Anwesenheitsband",
+    presence_household: "Haushalt",
+    presence_personal: "Persönlich",
+    presence_preheat_active: "Vorheizen aktiv",
+    presence_transition: "Anwesenheitswechsel",
+    planned_wakeup_time: "Geplanter Wakeup",
   };
   const rows = Object.entries(labels).map(([key, label]) => {
     const item = ctx[key] || {};
     return `<tr>
       <td>${esc(label)}</td>
-      <td class="mono">${esc(asText(item.value, "not exposed yet"))}</td>
+      <td class="mono">${esc(translateContextValue(key, item.value))}</td>
       <td class="mono">${esc(asText(item.source_entity_id))}</td>
-      <td>${statusChip(item.quality || "missing")}</td>
+      <td>${statusChip(item.quality || "missing", qualityLabel(item.quality || "missing"))}</td>
       <td>${esc(asText(item.fallback_used, "false"))}</td>
     </tr>`;
   }).join("");
   return `<div class="table-wrap">
-    <table><thead><tr><th>Wert</th><th>value</th><th>source_entity_id</th><th>quality</th><th>fallback_used</th></tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>Wert</th><th>Zustand</th><th>Quelle</th><th>Qualität</th><th>Fallback</th></tr></thead><tbody>${rows}</tbody></table>
   </div>`;
 }
 
@@ -958,9 +1071,11 @@ function renderZones(hass, app) {
   const zoneCards = Object.entries(ZONES).map(([zone, meta]) => {
     const plan = zonePlan(hass, zone, app);
     const reason = compactReason(primaryReason(plan, zone), zone);
+    const comfort = roomComfort(plan);
     const bath = zone === "bathroom" ? bathroomDebug(hass, app) : {};
     const fan = bath.fan_plan || {};
     const diag = fan.diagnostics || {};
+    const updateAt = plan.updated_at ?? stateObj(hass, meta.mode)?.last_changed ?? stateObj(hass, meta.target)?.last_changed;
     return `<div class="card room-card">
       <div class="room-head">
         <div class="room-icon">${icon(zoneIcon(zone))}</div>
@@ -969,7 +1084,7 @@ function renderZones(hass, app) {
           <div class="muted">Modus</div>
           <div class="mode">${esc(modeLabel(plan.profile))}</div>
         </div>
-        <div class="target">${esc(tempText(plan.target_temperature))}</div>
+        <div class="target">${esc(tempText(policyTarget(plan)))}</div>
       </div>
       <div class="reason">
         ${icon(zone === "bathroom" ? "mdi:water-outline" : "mdi:leaf-outline")}
@@ -978,14 +1093,24 @@ function renderZones(hass, app) {
       <div class="chip-row">${zoneChipList(plan, zone)}${zone === "bathroom" ? `<span class="pill blue">Lüfter: ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</span>` : ""}</div>
       <div class="room-facts">
         ${roomFact("Aktuelle Temperatur", zoneRoomTemperature(hass, app, zone))}
+        ${roomFact("Policy-Ziel", tempText(policyTarget(plan)))}
+        ${roomFact("Thermostat-Ziel", `${tempText(thermostatTarget(plan))}${numberLike(plan.floor_slab_delta) ? ` (${deltaText(plan.floor_slab_delta)})` : ""}`)}
+        ${roomFact("Thermostat real", tempText(stateText(hass, meta.target, thermostatTarget(plan))))}
+        ${comfort.label ? roomFact("Raumgefühl", `${displayValue(comfort.label)} · ${displayValue(comfort.reason)}`) : ""}
+        ${comfort.perceived_temperature !== undefined ? roomFact("Gefühlte Raumtemp.", tempText(comfort.perceived_temperature)) : ""}
         ${roomFact("Konsequenz", primaryConsequence(plan, zone))}
-        ${roomFact("Letztes Update", displayValue(plan.updated_at ?? stateObj(hass, meta.mode)?.last_changed ?? "unbekannt"))}
+        ${roomFact("Sync", plan.plan_hash === plan.last_applied_plan_hash ? "Synchron" : "Ausstehend")}
+        ${roomFact("Letztes Update", localDateTime(updateAt))}
       </div>
       <details class="expert section">
         <summary>Experten-Details</summary>
         ${kv("Plan Hash", plan.plan_hash, "mono")}
         ${kv("Pending Hash", plan.pending_plan_hash, "mono")}
         ${kv("Letzter Apply Hash", plan.last_applied_plan_hash, "mono")}
+        ${kv("Policy Target", policyTarget(plan))}
+        ${kv("Floor Slab Delta", deltaText(plan.floor_slab_delta))}
+        ${kv("Thermostat Target", thermostatTarget(plan))}
+        ${kv("Room Comfort Quality", qualityLabel(comfort.quality))}
         ${kv("Policy Reason", plan.reason ?? "missing")}
         ${kv("Apply Blocker", plan.apply_block_reason ?? plan.apply_reason)}
         ${kv("Decision Path", plan.decision_path || [])}
@@ -1070,10 +1195,11 @@ function renderThresholds(hass, app) {
   const tab = app?._tuningTab || "season";
   const tabs = [
     ["season", "Saisonmatrix"],
-    ["rooms", "Räume & Setpoints"],
-    ["outside", "Außen & Teff"],
-    ["boost", "Boost & Apply"],
+    ["setpoints", "Setpoints"],
+    ["living", "Wohnbereich"],
     ["bath", "Bad & Lüfter"],
+    ["weather", "Wetter & Teff"],
+    ["automation", "Automatik"],
     ["advanced", "Erweitert"],
   ].map(([id, label]) => `<button data-tuning-tab="${esc(id)}" class="${tab === id ? "active" : ""}">${esc(label)}</button>`).join("");
   const groupCard = (sectionName) => {
@@ -1102,6 +1228,7 @@ function renderThresholds(hass, app) {
       <td>${numberInput(app, data, keys.off_threshold)}</td>
       <td>${comfortDisabled ? `<span class="muted">deaktiviert</span>` : numberInput(app, data, keys.comfort_threshold)}</td>
       <td>${boostDisabled ? `<span class="muted">deaktiviert</span>` : numberInput(app, data, keys.boost_threshold)}</td>
+      <td>${numberInput(app, data, keys.floor_slab_delta)}</td>
       <td>${boolInput(app, data, keys.comfort_disabled)}</td>
       <td>${boolInput(app, data, keys.boost_disabled)}</td>
       <td>${[...new Set(sources)].map(sourcePill).join(" ") || sourcePill("default")}</td>
@@ -1112,28 +1239,37 @@ function renderThresholds(hass, app) {
     <h2>${icon("mdi:calendar-range")}Saisonmatrix</h2>
     <div class="table-wrap">
       <table class="matrix">
-        <thead><tr><th>Saison/Band</th><th>Monate</th><th>Aus ab</th><th>Komfort bis</th><th>Boost bis</th><th>Komfort aus</th><th>Boost aus</th><th>Quelle</th><th>Reset</th></tr></thead>
+        <thead><tr><th>Saison/Band</th><th>Monate</th><th>Aus ab</th><th>Komfort bis</th><th>Boost bis</th><th>Bodenplatten-Delta</th><th>Komfort aus</th><th>Boost aus</th><th>Quelle</th><th>Reset</th></tr></thead>
         <tbody>${seasonRows}</tbody>
       </table>
     </div>
   </div>`;
-  const roomsPanel = `<div class="grid cols-2">
+  const setpointsPanel = `<div class="grid cols-2">
     ${groupCard("setpoints")}
+    <div class="card">${fieldRows(app, data, [
+      ["bath_setpoint_protection", "Bad Schutz"],
+      ["bath_setpoint_ground", "Bad Eco"],
+      ["bath_setpoint_comfort", "Bad Komfort"],
+    ])}</div>
+  </div>`;
+  const livingPanel = `<div class="grid cols-2">
     <div class="card">
       <h2>${icon("mdi:home-thermometer-outline")}Raumkontext</h2>
       ${kv("Wohnzimmer", `Basis aus gemeinsamen Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "living_room")}`)}
       ${kv("Küche", `Basis aus gemeinsamen Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "kitchen")}`)}
-      ${kv("Bad", `Grundwärme/Komfort/Schutz über Bad-Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "bathroom")}`)}
-      <p class="muted">Wohnzimmer und Küche teilen sich die Wohnbereich-Fensterlogik. Bad-spezifische Feuchte- und Lüfterwerte liegen im Tab Bad & Lüfter.</p>
+      ${kv("Fensterlogik", livingAreaWindowStatus(hass).label)}
+      <p class="muted">Wohnzimmer und Küche teilen sich die Wohnbereich-Fensterlogik. Der fachliche Zielwert bleibt sichtbar; ein saisonales Bodenplatten-Delta wird erst auf den Thermostat-Zielwert addiert.</p>
     </div>
-    <div class="card">${fieldRows(app, data, [
-      ["bath_setpoint_protection", "Bad Schutz"],
-      ["bath_setpoint_ground", "Bad Grundwärme"],
-      ["bath_setpoint_comfort", "Bad Komfort"],
-    ])}</div>
+    <div class="card">
+      <h2>${icon("mdi:vector-combine")}Aktuelle Planwerte</h2>
+      ${Object.entries(ZONES).map(([zone, meta]) => {
+        const plan = zonePlan(hass, zone, app);
+        return kv(meta.label, `Policy ${tempText(policyTarget(plan))} · Thermostat ${tempText(thermostatTarget(plan))} · Delta ${deltaText(plan.floor_slab_delta)}`);
+      }).join("")}
+    </div>
   </div>`;
-  const outsidePanel = `<div class="grid cols-2">${groupCard("effective")}${renderEffective(hass, app)}</div>`;
-  const boostPanel = `<div class="grid cols-2">${groupCard("boost")}${groupCard("apply")}</div>`;
+  const weatherPanel = `<div class="grid cols-2">${groupCard("effective")}${renderEffective(hass, app)}</div>`;
+  const automationPanel = `<div class="grid cols-2">${groupCard("boost")}${groupCard("apply")}</div>`;
   const bathFields = [
     ["bath_comfort_suppression_teff", "Komfort bis Teff"],
     ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
@@ -1151,7 +1287,7 @@ function renderThresholds(hass, app) {
   ];
   const bathPanel = `<div class="grid cols-2"><div class="card"><h2>${icon("mdi:fan")}Bad & Lüfter</h2>${fieldRows(app, data, bathFields)}</div><div class="card"><h2>${icon("mdi:bathtub-outline")}Bad Status</h2>${kv("Badmodus", modeLabel(zonePlan(hass, "bathroom", app).profile))}${kv("Lüfter", modeLabel(bathroomDebug(hass, app).fan_plan?.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}${kv("Grund", compactReason(primaryReason(zonePlan(hass, "bathroom", app), "bathroom")))}</div></div>`;
   const advancedPanel = `<div class="grid cols-2">${groupCard("setpoints")}${groupCard("effective")}${groupCard("boost")}${groupCard("apply")}${groupCard("bath")}</div>`;
-  const panels = { season: seasonPanel, rooms: roomsPanel, outside: outsidePanel, boost: boostPanel, bath: bathPanel, advanced: advancedPanel };
+  const panels = { season: seasonPanel, setpoints: setpointsPanel, living: livingPanel, bath: bathPanel, weather: weatherPanel, automation: automationPanel, advanced: advancedPanel };
   return `${error ? `<div class="error-box">${esc(error)}</div>` : ""}
   <div class="card">
     <div class="toolbar">
@@ -1165,10 +1301,10 @@ function renderThresholds(hass, app) {
       </div>
     </div>
     <div class="grid cols-4">
-      ${miniStat("mdi:calendar-check-outline", current.active_month_band ?? "unbekannt", "Aktives Saisonband")}
+      ${miniStat("mdi:calendar-check-outline", seasonBandLabel(current.active_month_band ?? current.band ?? "unbekannt"), "Aktives Saisonband")}
       ${miniStat("mdi:sofa-outline", tempText(data.values?.setpoint_komfort ?? "missing"), "Komfort-Setpoint")}
-      ${miniStat("mdi:leaf-outline", tempText(data.values?.setpoint_spar ?? "missing"), "Spar-Setpoint")}
-      ${miniStat("mdi:bathtub-outline", tempText(data.values?.bath_setpoint_ground ?? "missing"), "Bad Grundwärme")}
+      ${miniStat("mdi:leaf-outline", tempText(data.values?.setpoint_spar ?? "missing"), "Eco-Setpoint")}
+      ${miniStat("mdi:bathtub-outline", tempText(data.values?.bath_setpoint_ground ?? "missing"), "Bad Eco")}
     </div>
   </div>
   <div class="section segmented">${tabs}</div>
@@ -1191,44 +1327,66 @@ function renderEffective(hass, app) {
   return `<div class="grid cols-2">
     <div class="card">
       <h2>${icon("mdi:database-eye-outline")}Inputs</h2>
-      ${kv("reale Außentemperatur", inp.real_temperature ?? br.real_temperature ?? "not exposed yet")}
-      ${metric("gefühlte Außentemperatur", stateText(hass, ENTITIES.outdoorFeelsLike), ENTITIES.outdoorFeelsLike)}
-      ${kv("Wetterzustand", inp.weather_condition ?? "not exposed yet")}
+      ${kv("Reale Außentemperatur", tempText(inp.real_temperature ?? br.real_temperature ?? "missing"))}
+      ${metric("Gefühlte Außentemperatur", stateText(hass, ENTITIES.outdoorFeelsLike), ENTITIES.outdoorFeelsLike)}
+      ${kv("Wetterzustand", weatherConditionLabel(inp.weather_condition ?? "missing"))}
       ${metric("Forecast +3h", stateText(hass, ENTITIES.forecastTemp3h), ENTITIES.forecastTemp3h)}
-      ${kv("Lux", inp.outdoor_lux ?? "not exposed yet")}
-      ${kv("Sun Elevation", inp.sun_elevation ?? "not exposed yet")}
+      ${kv("Licht (Lux)", inp.outdoor_lux ?? "nicht geladen")}
+      ${kv("Sonnenstand", inp.sun_elevation ?? "nicht geladen")}
     </div>
     <div class="card">
       <h2>${icon("mdi:thermometer-lines")}Breakdown</h2>
-      ${kv("Floor Slab Offset", br.floor_slab_offset ?? "missing")}
-      ${kv("Feels-Like Offset", br.feels_like_offset ?? "missing")}
-      ${kv("Weather Offset", br.weather_offset ?? "missing")}
-      ${kv("Forecast Offset", br.forecast_offset ?? "missing")}
-      ${kv("Lux Bonus", br.lux_bonus ?? "missing")}
-      ${kv("finale effektive Außentemperatur", br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp))}
-      ${kv("input quality", br.input_quality ?? "missing")}
+      ${kv("Bodenplatten-Einfluss", tempText(br.floor_slab_offset ?? "missing"))}
+      ${kv("Gefühlt-Korrektur", tempText(br.feels_like_offset ?? "missing"))}
+      ${kv("Wetterkorrektur", tempText(br.weather_offset ?? "missing"))}
+      ${kv("Prognosekorrektur", tempText(br.forecast_offset ?? "missing"))}
+      ${kv("Lichtbonus", tempText(br.lux_bonus ?? "missing"))}
+      ${kv("Effektive Außentemperatur", tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
+      ${kv("Datenqualität", qualityLabel(br.input_quality ?? "missing"))}
     </div>
     <div class="card">
       <h2>${icon("mdi:link-variant")}Source Entities</h2>
-      ${Object.entries(sourceEntities).map(([k, v]) => kv(k, v)).join("") || kv("sources", "not exposed yet")}
+      ${Object.entries(sourceEntities).map(([k, v]) => kv(k, v)).join("") || kv("Quellen", "nicht geladen")}
     </div>
     <div class="card">
       <h2>${icon("mdi:weather-partly-cloudy")}Weather Resolver</h2>
       ${kv("Forecast +3h Wert", forecastResolution.value ?? inp.forecast_temperature ?? "missing")}
       ${kv("Forecast Quelle", forecastResolution.source ?? "missing")}
-      ${kv("Forecast Qualität", forecastResolution.quality ?? "missing")}
+      ${kv("Forecast Qualität", qualityLabel(forecastResolution.quality ?? "missing"))}
       ${kv("Weather Entity", forecastResolution.weather_entity ?? sourceEntities.weather_entity ?? "missing")}
-      ${kv("Zielzeit now +3h", forecastResolution.target_time ?? "missing")}
-      ${kv("Forecast Zeitpunkt", forecastResolution.forecast_datetime ?? "missing")}
-      ${kv("Forecast Reason", forecastResolution.reason ?? "missing")}
+      ${kv("Zielzeit +3h", localDateTime(forecastResolution.target_time ?? "missing"))}
+      ${kv("Forecast Zeitpunkt", localDateTime(forecastResolution.forecast_datetime ?? "missing"))}
+      ${kv("Forecast Grund", compactReason(forecastResolution.reason ?? "missing"))}
       ${kv("Forecast Fallback", forecastResolution.fallback_used ?? false)}
       ${kv("Feels-like Wert", feelsLikeResolution.value ?? inp.feels_like_temperature ?? "missing")}
       ${kv("Feels-like Quelle", feelsLikeResolution.source ?? "missing")}
-      ${kv("Feels-like Qualität", feelsLikeResolution.quality ?? "missing")}
-      ${kv("Feels-like Reason", feelsLikeResolution.reason ?? "missing")}
+      ${kv("Feels-like Qualität", qualityLabel(feelsLikeResolution.quality ?? "missing"))}
+      ${kv("Feels-like Grund", compactReason(feelsLikeResolution.reason ?? "missing"))}
       ${kv("Feels-like Fallback", feelsLikeResolution.fallback_used ?? false)}
     </div>
   </div>`;
+}
+
+function renderWeather(hass, app) {
+  const br = effectiveBreakdown(hass, app);
+  const inp = effectiveInputs(hass, app);
+  return `<div class="card">
+    <div class="room-head">
+      <div class="hero-icon">${icon("mdi:weather-partly-cloudy")}</div>
+      <div>
+        <h2>Außenlage und Teff</h2>
+        <p class="muted">Wetter, Licht und Prognose werden nur für die Entscheidung bewertet; Fensterstatus bleibt separat im Raumkontext.</p>
+      </div>
+      <div class="target">${esc(tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}</div>
+    </div>
+    <div class="grid cols-4">
+      ${miniStat("mdi:thermometer", tempText(inp.real_temperature ?? br.real_temperature ?? "missing"), "Real draußen")}
+      ${miniStat("mdi:thermometer-water", tempText(inp.feels_like_temperature ?? stateText(hass, ENTITIES.outdoorFeelsLike)), "Gefühlt")}
+      ${miniStat("mdi:weather-cloudy-clock", tempText(inp.forecast_temperature ?? stateText(hass, ENTITIES.forecastTemp3h)), "Prognose +3h")}
+      ${miniStat("mdi:weather-partly-cloudy", weatherConditionLabel(inp.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "missing")), "Wetterzustand")}
+    </div>
+  </div>
+  <div class="section">${renderEffective(hass, app)}</div>`;
 }
 
 function actionButton(id, label, iconName, primary, available) {
@@ -1240,9 +1398,14 @@ function actionButton(id, label, iconName, primary, available) {
 function plannedActionCard(hass, app, zone) {
   const meta = ZONES[zone];
   const plan = zonePlan(hass, zone, app);
+  const current = zoneRoomTemperature(hass, app, zone);
+  const applyNeeded = plan.plan_hash && plan.last_applied_plan_hash ? plan.plan_hash !== plan.last_applied_plan_hash : plan.apply_needed;
   return `<div class="card">
     <h2>${icon(zoneIcon(zone))}${esc(meta.label)}</h2>
-    ${kv("Geplante Aktion", `${modeLabel(plan.profile)} auf ${tempText(plan.target_temperature)}`)}
+    ${kv("Geplante Aktion", `${modeLabel(plan.profile)} auf ${tempText(policyTarget(plan))}`)}
+    ${kv("Thermostat-Ziel", `${tempText(thermostatTarget(plan))}${numberLike(plan.floor_slab_delta) ? ` (${deltaText(plan.floor_slab_delta)})` : ""}`)}
+    ${kv("Aktuelle Temperatur", current)}
+    ${kv("Apply nötig", applyNeeded === true ? "Ja" : applyNeeded === false ? "Nein" : "unbekannt")}
     ${kv("Grund", compactReason(primaryReason(plan, zone), zone))}
     <div class="chip-row">
       <span class="pill ${modeClass(plan.profile)}">Modus: ${esc(modeLabel(plan.profile))}</span>
@@ -1257,6 +1420,7 @@ function renderApply(hass, app) {
   const payload = debugPayload(hass, app);
   const lastApply = endpointDebug(app).last_apply_result || payload.last_apply_result || null;
   const applyActive = stateText(hass, ENTITIES.applyActive);
+  const lastApplyTime = lastApply?.timestamp ?? stateObj(hass, ENTITIES.lastApply)?.last_changed ?? stateText(hass, ENTITIES.lastApply);
   return `<div class="grid cols-4">
     <div class="card apply-hero">
       <div class="room-head">
@@ -1270,8 +1434,13 @@ function renderApply(hass, app) {
     </div>
     <div class="card">
       <h2>${icon("mdi:calendar-clock")}Letzter Apply</h2>
-      <div class="target">${esc(displayValue(stateText(hass, ENTITIES.lastApply), "Nie"))}</div>
-      <p class="muted">Bisheriger Apply-Status der Integration.</p>
+      <div class="target">${esc(lastApply ? localTime(lastApplyTime) : displayValue(stateText(hass, ENTITIES.lastApply), "Nie"))}</div>
+      <p class="muted">${esc(lastApply ? localDateTime(lastApplyTime) : "Bisher wurde noch nichts angewendet.")}</p>
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:flask-outline")}Dry Run</h2>
+      <div class="target">${esc(dryRun ? "Verfügbar" : "Fehlt")}</div>
+      <p class="muted">Simulierte Vorschau jederzeit möglich.</p>
     </div>
     <div class="card">
       <h2>${icon("mdi:shield-check-outline")}Sicherheit</h2>
@@ -1354,7 +1523,7 @@ function diagnosticPackage(hass, app, format = "markdown") {
   const fan = bath.fan_plan || {};
   const status = {
     timestamp: full.timestamp || new Date().toISOString(),
-    integration_version: "unknown",
+    integration_version: full.integration_version || payload.integration_version || "unknown",
     system_ready: payload.system_ready ?? stateText(hass, ENTITIES.systemReady),
     auto_apply: payload.apply_active ?? stateText(hass, ENTITIES.applyActive),
     apply_status: stateText(hass, ENTITIES.applyStatus),
@@ -1377,6 +1546,10 @@ function diagnosticPackage(hass, app, format = "markdown") {
     plans: Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
       profile: plan.profile,
       target_temperature: plan.target_temperature,
+      policy_target_temperature: policyTarget(plan),
+      floor_slab_delta: plan.floor_slab_delta,
+      thermostat_target_temperature: thermostatTarget(plan),
+      room_comfort: plan.room_comfort,
       policy_reason: plan.reason,
       apply_blocker: plan.apply_block_reason,
       decision_path: plan.decision_path,
@@ -1407,7 +1580,7 @@ function diagnosticPackage(hass, app, format = "markdown") {
   if (format === "json") return JSON.stringify(status, null, 2);
   const lineForZone = (zone, label) => {
     const plan = status.plans[zone] || {};
-    return `- ${label}: ${modeLabel(plan.profile)} ${tempText(plan.target_temperature)}, Grund: ${compactReason(plan.policy_reason, zone)}`;
+    return `- ${label}: ${modeLabel(plan.profile)} Policy ${tempText(plan.policy_target_temperature)}, Thermostat ${tempText(plan.thermostat_target_temperature)}, Grund: ${compactReason(plan.policy_reason, zone)}`;
   };
   return `# Benni Climate Policy Diagnosepaket
 
@@ -1484,13 +1657,53 @@ function renderDebug(hass, app) {
     || "none";
   const perf = full.performance || payload.performance || {};
   const packageText = app?._diagnosticsPackage || "";
-  return `<div class="grid cols-4">
-    ${miniStat("mdi:refresh", perf.recalculate_count ?? dbg.recalculate_count ?? "unbekannt", "Recalculate Count")}
-    ${miniStat("mdi:lightning-bolt-outline", payload.last_recalculate_reason ?? dbg.last_recalculate_reason ?? skipReason, "Letzter Grund")}
-    ${miniStat("mdi:cloud-check-outline", payload.forecast_cache_status ?? dbg.forecast_cache_status ?? "unbekannt", "Forecast-Cache")}
-    ${miniStat("mdi:publish", payload.publish_count_24h ?? dbg.publish_count_24h ?? "unbekannt", "Publish 24h")}
-  </div>
-  <div class="section card">
+  const tab = app?._debugTab || "status";
+  const tabs = [
+    ["status", "Status"],
+    ["decision", "Entscheidung"],
+    ["package", "Diagnosepaket"],
+    ["raw", "Rohdaten"],
+  ].map(([id, label]) => `<button data-debug-tab="${esc(id)}" class="${tab === id ? "active" : ""}">${esc(label)}</button>`).join("");
+  const statusPanel = `<div class="section grid cols-2">
+    <div class="card"><h2>${icon("mdi:speedometer")}Performance</h2>
+      ${kv("Letzte Bewertung", perf.last_evaluate_duration_ms ?? "nicht geladen", "mono")}
+      ${kv("Durchschnitt Bewertung", perf.average_evaluate_duration_ms ?? "nicht geladen", "mono")}
+      ${kv("p95 Bewertung", perf.p95_evaluate_duration_ms ?? "nicht geladen", "mono")}
+      ${kv("Letzter Apply", perf.last_apply_duration_ms ?? "nicht geladen", "mono")}
+      ${kv("Letzter Forecast", perf.last_forecast_duration_ms ?? "nicht geladen", "mono")}
+      ${kv("Aktuelle Last", perf.update_load ?? "nicht geladen")}
+      ${kv("Debug Endpoint", app?._debugLastFetch ? localDateTime(app._debugLastFetch) : "nie", "mono")}
+    </div>
+    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Kontext-Snapshot</h2>
+      ${renderContext(hass, app)}
+    </div>
+    <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>
+      ${renderApplySummary(payload.last_apply_result)}
+      ${jsonDetails("Apply-Versuch als JSON anzeigen", payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}
+    </div>
+    <div class="card"><h2>${icon("mdi:block-helper")}Letzter Skip-/Blockgrund</h2>${kv("Grund", compactReason(skipReason))}${kv("Raw", skipReason, "mono")}</div>
+  </div>`;
+  const decisionPanel = `<div class="section grid cols-2">
+    <div class="card"><h2>${icon("mdi:routes")}Letzter Entscheidungsweg</h2>
+      ${paths.map((item, index) => `<div class="fact-row"><span>${index + 1}. ${esc(ZONES[item.zone]?.label || item.zone)}</span><b>${esc(compactReason(item.reason || item.apply_block_reason, item.zone))}</b></div>`).join("")}
+      ${jsonDetails("Pfad als JSON anzeigen", paths)}
+    </div>
+    <div class="card"><h2>${icon("mdi:fingerprint")}Hash-Basis</h2>${jsonDetails("Hash-Basis als JSON anzeigen", Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
+      zone: plan.zone,
+      profile: plan.profile,
+      policy_target_temperature: policyTarget(plan),
+      floor_slab_delta: plan.floor_slab_delta,
+      thermostat_target_temperature: thermostatTarget(plan),
+      blocked_by: plan.blocked_by,
+      effective_outdoor_temperature: plan.effective_outdoor_temperature,
+      plan_hash: plan.plan_hash,
+    }])))}</div>
+    <div class="card"><h2>${icon("mdi:database-search-outline")}Konfigurierte Inputs</h2>
+      ${renderInputs(hass, app)}
+    </div>
+    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonDetails("Thresholds als JSON anzeigen", thresholds(hass, app))}</div>
+  </div>`;
+  const packagePanel = `<div class="section card">
     <h2>${icon("mdi:clipboard-text-outline")}Diagnosepaket</h2>
     <p class="muted">Kompaktes Copy/Paste-Paket für Codex/Claude ohne große Forecast-Listen oder volatile Massendaten.</p>
     <div class="actions">
@@ -1500,43 +1713,26 @@ function renderDebug(hass, app) {
     </div>
     ${packageText ? `<textarea class="pre mono diagnostics-package" readonly>${esc(packageText)}</textarea>` : ""}
     ${jsonDetails("Diagnosepaket JSON anzeigen", JSON.parse(diagnosticPackage(hass, app, "json")))}
-  </div>
-  <div class="section grid cols-2">
-    <div class="card"><h2>${icon("mdi:speedometer")}Performance</h2>
-      ${Object.entries(perf).map(([k, v]) => kv(k, v, "mono")).join("") || kv("Performance", "not exposed yet")}
-      ${kv("Debug Endpoint", app?._debugLastFetch ? new Date(app._debugLastFetch).toISOString() : "never", "mono")}
-    </div>
-    <div class="card"><h2>${icon("mdi:routes")}Letzter Entscheidungsweg</h2>
-      ${paths.map((item, index) => `<div class="fact-row"><span>${index + 1}. ${esc(item.zone)}</span><b>${esc(compactReason(item.reason || item.apply_block_reason, item.zone))}</b></div>`).join("")}
-      ${jsonDetails("Pfad als JSON anzeigen", paths)}
-    </div>
-    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Kontext-Snapshot</h2>
-      ${renderContext(hass, app)}
-    </div>
-    <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>
-      ${renderApplySummary(payload.last_apply_result)}
-      ${jsonDetails("Apply-Versuch als JSON anzeigen", payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}
-    </div>
-    <div class="card"><h2>${icon("mdi:database-search-outline")}Konfigurierte Inputs</h2>
-      ${renderInputs(hass, app)}
-    </div>
-    <div class="card"><h2>${icon("mdi:block-helper")}Letzter Skip-/Blockgrund</h2>${kv("Grund", compactReason(skipReason))}${kv("Raw", skipReason, "mono")}</div>
-    <div class="card"><h2>${icon("mdi:fingerprint")}Hash-Basis</h2>${jsonDetails("Hash-Basis als JSON anzeigen", Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
-      zone: plan.zone,
-      profile: plan.profile,
-      target_temperature: plan.target_temperature,
-      blocked_by: plan.blocked_by,
-      effective_outdoor_temperature: plan.effective_outdoor_temperature,
-      plan_hash: plan.plan_hash,
-    }])))}</div>
-    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonDetails("Thresholds als JSON anzeigen", thresholds(hass, app))}</div>
-    <div class="card"><h2>${icon("mdi:code-json")}Debug Summary</h2>${jsonDetails("Recorder-sichere Attribute anzeigen", dbg)}</div>
   </div>`;
+  const rawPanel = `<div class="section grid cols-2">
+    <div class="card"><h2>${icon("mdi:code-json")}Debug Summary</h2>${jsonDetails("Recorder-sichere Attribute anzeigen", dbg)}</div>
+    <div class="card"><h2>${icon("mdi:database-eye-outline")}Debug Endpoint</h2>${jsonDetails("Kompletten Endpoint anzeigen", full)}</div>
+  </div>`;
+  const panels = { status: statusPanel, decision: decisionPanel, package: packagePanel, raw: rawPanel };
+  return `<div class="grid cols-4">
+    ${miniStat("mdi:refresh", perf.recalculate_count ?? dbg.recalculate_count ?? "unbekannt", "Recalculate Count")}
+    ${miniStat("mdi:lightning-bolt-outline", payload.last_recalculate_reason ?? dbg.last_recalculate_reason ?? skipReason, "Letzter Grund")}
+    ${miniStat("mdi:cloud-check-outline", payload.forecast_cache_status ?? dbg.forecast_cache_status ?? "unbekannt", "Forecast-Cache")}
+    ${miniStat("mdi:publish", payload.publish_count_24h ?? dbg.publish_count_24h ?? "unbekannt", "Publish 24h")}
+  </div>
+  <div class="section segmented">${tabs}</div>
+  ${panels[tab] || statusPanel}`;
 }
 
 const RENDERERS = {
   overview: renderOverview,
   zones: renderZones,
+  weather: renderWeather,
   thresholds: renderThresholds,
   apply: renderApply,
   debug: renderDebug,
@@ -1553,6 +1749,7 @@ class BcpApp extends HTMLElement {
     this._tuningBase = null;
     this._tuningError = "";
     this._tuningTab = "season";
+    this._debugTab = "status";
     this._diagnosticsPackage = "";
     this._diagnosticsPackageFormat = "markdown";
     this._debugPayload = null;
@@ -1627,6 +1824,7 @@ class BcpApp extends HTMLElement {
     const subtitles = {
       overview: "Bedingungen, Konsequenzen und Policy-Zustand auf einen Blick",
       zones: "Übersicht und Status deiner Räume",
+      weather: "Außenwerte, Prognose und Teff-Berechnung",
       apply: "Apply, Dry Run und Vorschau",
       thresholds: "Heizstrategie je Jahreszeit optimieren",
       debug: "Tiefgehende Analyse und Systeminformationen",
@@ -1681,6 +1879,12 @@ class BcpApp extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-tuning-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         this._tuningTab = btn.dataset.tuningTab;
+        this._render();
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-debug-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._debugTab = btn.dataset.debugTab;
         this._render();
       });
     });
@@ -1753,6 +1957,8 @@ class BcpApp extends HTMLElement {
         payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 1 });
       } else if (intKeys.has(key)) {
         payload[key] = this._validateNumber(key, draft[key], { min: 1, integer: true });
+      } else if (key.endsWith("_floor_slab_delta")) {
+        payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 5 });
       } else if (key.endsWith("_threshold") || key.startsWith("setpoint_") || key.startsWith("bath_setpoint_")) {
         payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 35 });
       } else {
@@ -1767,6 +1973,7 @@ class BcpApp extends HTMLElement {
       const boostRaw = draft[this._thresholdKey(band, "boost_threshold")];
       const comfort = comfortDisabled && comfortRaw === "" ? null : this._validateNumber(this._thresholdKey(band, "comfort_threshold"), comfortRaw, { min: 0, max: 35 });
       const boost = boostDisabled && boostRaw === "" ? null : this._validateNumber(this._thresholdKey(band, "boost_threshold"), boostRaw, { min: 0, max: 35 });
+      this._validateNumber(this._thresholdKey(band, "floor_slab_delta"), draft[this._thresholdKey(band, "floor_slab_delta")], { min: 0, max: 5 });
       if (!comfortDisabled && comfort > off) throw new Error(`${band}: comfort_threshold darf nicht über off_threshold liegen`);
       if (!boostDisabled && comfortDisabled) throw new Error(`${band}: boost_threshold kann nicht aktiv sein, wenn comfort deaktiviert ist`);
       if (!boostDisabled && boost > comfort) throw new Error(`${band}: boost_threshold darf nicht über comfort_threshold liegen`);

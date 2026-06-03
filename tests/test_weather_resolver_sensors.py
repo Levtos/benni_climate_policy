@@ -50,4 +50,4 @@ def test_panel_links_weather_resolver_temperature_sensors():
     assert 'forecastTemp3h: "sensor.climate_forecast_temperature_3h"' in FRONTEND_SOURCE
     assert 'outdoorFeelsLike: "sensor.climate_outdoor_feels_like_temperature"' in FRONTEND_SOURCE
     assert 'metric("Forecast +3h", stateText(hass, ENTITIES.forecastTemp3h), ENTITIES.forecastTemp3h)' in FRONTEND_SOURCE
-    assert 'metric("gefühlte Außentemperatur", stateText(hass, ENTITIES.outdoorFeelsLike), ENTITIES.outdoorFeelsLike)' in FRONTEND_SOURCE
+    assert 'metric("Gefühlte Außentemperatur", stateText(hass, ENTITIES.outdoorFeelsLike), ENTITIES.outdoorFeelsLike)' in FRONTEND_SOURCE
