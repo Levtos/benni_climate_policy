@@ -36,6 +36,7 @@ from .policy import (
     OPT_BOOST_DELTA,
     OPT_FEELS_LIKE_DAMPING,
     OPT_FLOOR_SLAB_TAU,
+    OPT_FLOOR_SLAB_DELTA,
     OPT_FORECAST_WEIGHT,
     OPT_LUX_BONUS_MAX,
     OPT_LUX_REFERENCE,
@@ -54,6 +55,7 @@ THRESHOLD_FIELDS = (
     "boost_threshold",
     "comfort_disabled",
     "boost_disabled",
+    "floor_slab_delta",
 )
 
 CORE_KEYS = (
@@ -166,6 +168,7 @@ def default_option_values() -> dict[str, float | int | bool]:
             threshold_option_key(band, "boost_threshold"): config.boost_threshold,
             threshold_option_key(band, "comfort_disabled"): config.comfort_disabled,
             threshold_option_key(band, "boost_disabled"): config.boost_disabled,
+            threshold_option_key(band, "floor_slab_delta"): config.floor_slab_delta,
         })
     return values
 
@@ -206,6 +209,7 @@ def option_specs() -> dict[str, OptionSpec]:
         specs[threshold_option_key(band, "boost_threshold")] = OptionSpec("float", defaults[threshold_option_key(band, "boost_threshold")], 0.0, 35.0)
         specs[threshold_option_key(band, "comfort_disabled")] = OptionSpec("bool", defaults[threshold_option_key(band, "comfort_disabled")])
         specs[threshold_option_key(band, "boost_disabled")] = OptionSpec("bool", defaults[threshold_option_key(band, "boost_disabled")])
+        specs[threshold_option_key(band, "floor_slab_delta")] = OptionSpec("float", defaults[threshold_option_key(band, "floor_slab_delta")], 0.0, 5.0)
     return specs
 
 
@@ -291,6 +295,7 @@ def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float |
             threshold_option_key(band, "boost_threshold"): config.boost_threshold,
             threshold_option_key(band, "comfort_disabled"): config.comfort_disabled,
             threshold_option_key(band, "boost_disabled"): config.boost_disabled,
+            threshold_option_key(band, "floor_slab_delta"): config.floor_slab_delta,
         })
     return values
 

@@ -41,6 +41,7 @@ from .const import (
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_STARTUP_BLOCK_SECONDS,
     HEATING_ZONES,
+    INTEGRATION_VERSION,
     PRESET,
     SELF_GENERATED_INPUT_ENTITY_IDS,
     ZONE_BATHROOM,
@@ -69,9 +70,12 @@ from .policy import (
     decide_zone,
     effective_outdoor_temperature,
     empty_context,
+    evaluate_room_comfort,
     policy_tuning_from_options,
     policy_visibility_snapshot,
+    floor_slab_delta_for_month,
     setpoint_for,
+    thermostat_target_for,
     threshold_for_month_config,
 )
 from .tuning_options import tuning_options_snapshot, validated_options_update
@@ -186,6 +190,10 @@ class ClimatePolicyCoordinator:
         self._boost_reason: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
         self._last_day_state: str | None = None
         self._last_bathroom_humidity_sample: tuple[float, datetime] | None = None
+        self.last_evaluate_duration_ms: float | None = None
+        self.evaluate_duration_samples_ms: list[float] = []
+        self.last_apply_duration_ms: float | None = None
+        self.last_forecast_duration_ms: float | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -392,6 +400,7 @@ class ClimatePolicyCoordinator:
         return self.system_ready and self.startup_ready
 
     async def async_evaluate(self, *, auto_apply: bool = False, reason: str = "manual") -> ClimateDecision:
+        evaluate_started = time.perf_counter()
         now = dt_util.now()
         self.recalculate_count += 1
         self.last_recalculate_at = now
@@ -401,6 +410,7 @@ class ClimatePolicyCoordinator:
         self._numeric_fallback_keys.clear()
         context = ContextResolver(self.hass, self.config).resolve()
         real_temperature = self._float_state(CONF_OUTDOOR_TEMPERATURE)
+        forecast_started = time.perf_counter()
         self.weather_resolution = await WeatherResolver(
             self.hass,
             self.config,
@@ -410,6 +420,7 @@ class ClimatePolicyCoordinator:
             real_temperature=real_temperature,
             now=now,
         )
+        self.last_forecast_duration_ms = round((time.perf_counter() - forecast_started) * 1000, 2)
         effective = effective_outdoor_temperature(
             EffectiveTemperatureInput(
                 real_temperature=real_temperature,
@@ -437,16 +448,13 @@ class ClimatePolicyCoordinator:
             ZONE_LIVING: self._zone_input(ZONE_LIVING),
             ZONE_KITCHEN: self._zone_input(ZONE_KITCHEN),
         }
+        bathroom_input = self._bathroom_climate_input()
+        bathroom_plan = decide_bathroom_climate(bathroom_input, context, effective, now, bath_tuning)
+        bathroom_plan = self._apply_floor_slab_context(bathroom_plan, bathroom_input, now, tuning)
         plans = {
             ZONE_LIVING: decide_zone(zone_inputs[ZONE_LIVING], context, effective, now, tuning=tuning),
             ZONE_KITCHEN: decide_zone(zone_inputs[ZONE_KITCHEN], context, effective, now, tuning=tuning),
-            ZONE_BATHROOM: decide_bathroom_climate(
-                self._bathroom_climate_input(),
-                context,
-                effective,
-                now,
-                bath_tuning,
-            ),
+            ZONE_BATHROOM: bathroom_plan,
         }
         for zone_id in HEATING_ZONES:
             plans[zone_id] = self._apply_hysteresis(zone_id, plans[zone_id], now, tuning)
@@ -462,6 +470,9 @@ class ClimatePolicyCoordinator:
         )
         self._last_day_state = _state_value(context.day_state.value)
         self.decision = ClimateDecision(context, effective, plans, now, self.system_ready)
+        self.last_evaluate_duration_ms = round((time.perf_counter() - evaluate_started) * 1000, 2)
+        self.evaluate_duration_samples_ms.append(self.last_evaluate_duration_ms)
+        self.evaluate_duration_samples_ms = self.evaluate_duration_samples_ms[-100:]
         self._notify()
         if auto_apply and self.apply_active:
             await self.async_apply(manual=False, dry_run=False)
@@ -513,6 +524,18 @@ class ClimatePolicyCoordinator:
             windows=windows,
         )
 
+    def _apply_floor_slab_context(self, plan: ZonePlan, inp: BathroomClimateInput, now: datetime, tuning: Any) -> ZonePlan:
+        delta = floor_slab_delta_for_month(now.month, tuning)
+        policy_target = plan.raw_target_temperature
+        thermostat_target = thermostat_target_for(policy_target, plan.profile, delta)
+        return replace(
+            plan,
+            target_temperature=thermostat_target,
+            raw_target_temperature=policy_target,
+            floor_slab_delta=delta,
+            room_comfort=evaluate_room_comfort(inp.room_temperature, inp.room_humidity, delta),
+        )
+
     def _hysteresis_requirement(
         self,
         previous: str,
@@ -554,11 +577,15 @@ class ClimatePolicyCoordinator:
         return None
 
     def _hold_hysteresis_plan(self, plan: ZonePlan, previous: str, reason: str, now: datetime, tuning: Any) -> ZonePlan:
-        target = setpoint_for(previous, plan.effective_outdoor_temperature, tuning)
+        delta = floor_slab_delta_for_month(now.month, tuning)
+        policy_target = setpoint_for(previous, plan.effective_outdoor_temperature, tuning)
+        target = thermostat_target_for(policy_target, previous, delta)
         return replace(
             plan,
             profile=previous,  # type: ignore[arg-type]
             target_temperature=target,
+            raw_target_temperature=policy_target,
+            floor_slab_delta=delta,
             reason=reason,
             decision_path=[*plan.decision_path, reason],
             is_boost_active=previous == "boost",
@@ -595,12 +622,15 @@ class ClimatePolicyCoordinator:
         return plan
 
     def _boosted_plan(self, plan: ZonePlan, now: datetime, until: datetime, reason: str, tuning: Any) -> ZonePlan:
-        target = setpoint_for("boost", plan.effective_outdoor_temperature, tuning)
+        delta = floor_slab_delta_for_month(now.month, tuning)
+        policy_target = setpoint_for("boost", plan.effective_outdoor_temperature, tuning)
+        target = thermostat_target_for(policy_target, "boost", delta)
         return replace(
             plan,
             profile="boost",
             target_temperature=target,
-            raw_target_temperature=target,
+            raw_target_temperature=policy_target,
+            floor_slab_delta=delta,
             reason=reason,
             decision_path=[*plan.decision_path, reason],
             is_boost_active=True,
@@ -648,12 +678,15 @@ class ClimatePolicyCoordinator:
                 self._boost_reason[zone_id] = None
                 active_until = None
             if plan.profile == "boost" and self._zone_profile_state.get(zone_id) == "boost" and active_until is None:
-                target = setpoint_for("komfort", plan.effective_outdoor_temperature, tuning)
+                delta = floor_slab_delta_for_month(now.month, tuning)
+                policy_target = setpoint_for("komfort", plan.effective_outdoor_temperature, tuning)
+                target = thermostat_target_for(policy_target, "komfort", delta)
                 plans[zone_id] = replace(
                     plan,
                     profile="komfort",
                     target_temperature=target,
-                    raw_target_temperature=target,
+                    raw_target_temperature=policy_target,
+                    floor_slab_delta=delta,
                     reason="boost_timer_elapsed_fallback_komfort",
                     decision_path=[*plan.decision_path, "boost_timer_elapsed_fallback_komfort"],
                     is_boost_active=False,
@@ -736,11 +769,13 @@ class ClimatePolicyCoordinator:
         manual: bool,
         dry_run: bool,
     ) -> ApplyResult:
+        apply_started = time.perf_counter()
         if self.decision is None:
             await self.async_evaluate(auto_apply=False, reason="apply_without_decision")
         decision = self.decision
         if decision is None:
             self.last_apply_result = ApplyResult("error", "no_decision", [])
+            self.last_apply_duration_ms = round((time.perf_counter() - apply_started) * 1000, 2)
             self._notify()
             return self.last_apply_result
 
@@ -830,6 +865,7 @@ class ClimatePolicyCoordinator:
                     elif plan:
                         plan.last_applied = now.isoformat()
         self.last_apply_result = result
+        self.last_apply_duration_ms = round((time.perf_counter() - apply_started) * 1000, 2)
         self._notify()
         return result
 
@@ -858,7 +894,16 @@ class ClimatePolicyCoordinator:
         )
         thresholds = policy_visibility_snapshot(now.month, effective_temperature, self.policy_tuning)
         forecast_diag = self.weather_resolution.forecast.as_dict() if self.weather_resolution else {}
+        samples = sorted(self.evaluate_duration_samples_ms)
+        average_evaluate_ms = round(sum(samples) / len(samples), 2) if samples else None
+        p95_evaluate_ms = samples[min(len(samples) - 1, int(len(samples) * 0.95))] if samples else None
+        update_load = "ruhig"
+        if self.last_evaluate_duration_ms is not None and self.last_evaluate_duration_ms > 1000:
+            update_load = "auffällig"
+        elif self.last_evaluate_duration_ms is not None and self.last_evaluate_duration_ms > 250:
+            update_load = "normal"
         return {
+            "integration_version": INTEGRATION_VERSION,
             "system_ready": self.system_ready,
             "apply_active": self.apply_active,
             "apply_ready": self.apply_ready,
@@ -899,6 +944,12 @@ class ClimatePolicyCoordinator:
                 "weather_forecast_cache_hit": forecast_diag.get("cache_hit"),
                 "entity_publish_skipped_count": self.entity_publish_skipped_count,
                 "entity_publish_changed_count": self.entity_publish_changed_count,
+                "last_evaluate_duration_ms": self.last_evaluate_duration_ms,
+                "average_evaluate_duration_ms": average_evaluate_ms,
+                "p95_evaluate_duration_ms": p95_evaluate_ms,
+                "last_apply_duration_ms": self.last_apply_duration_ms,
+                "last_forecast_duration_ms": self.last_forecast_duration_ms,
+                "update_load": update_load,
             },
         }
 

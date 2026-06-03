@@ -12,6 +12,7 @@ from .models import (
     ClimateContextSnapshot,
     EffectiveTemperatureBreakdown,
     EffectiveTemperatureInput,
+    RoomComfort,
     SourceValue,
     ZoneInput,
     ZonePlan,
@@ -41,6 +42,7 @@ OPT_SETPOINT_BOOST = "setpoint_boost"
 OPT_BOOST_DELTA = "boost_delta"
 OPT_BOOST_ACTIVATION_DELTA = "boost_activation_delta"
 OPT_FLOOR_SLAB_TAU = "floor_slab_tau"
+OPT_FLOOR_SLAB_DELTA = "floor_slab_delta"
 OPT_LUX_BONUS_MAX = "lux_bonus_max"
 OPT_LUX_REFERENCE = "lux_reference"
 OPT_FEELS_LIKE_DAMPING = "feels_like_damping"
@@ -55,6 +57,7 @@ class ThresholdBand:
     boost_threshold: float
     comfort_disabled: bool = False
     boost_disabled: bool = False
+    floor_slab_delta: float = 0.0
 
     def active_thresholds(self) -> dict[str, float | None]:
         return {
@@ -71,18 +74,19 @@ class ThresholdBand:
             "boost_threshold": self.boost_threshold,
             "comfort_disabled": self.comfort_disabled,
             "boost_disabled": self.boost_disabled,
+            "floor_slab_delta": self.floor_slab_delta,
         }
 
 
 DEFAULT_THRESHOLD_BANDS: dict[str, ThresholdBand] = {
-    "winter": ThresholdBand((12, 1, 2), 15.5, 11.0, 5.0),
-    "late_winter": ThresholdBand((3,), 16.0, 11.5, 6.0),
-    "spring": ThresholdBand((4,), 17.0, 12.5, 8.0),
-    "late_spring": ThresholdBand((5,), 18.5, 14.0, 0.0, boost_disabled=True),
-    "summer": ThresholdBand((6, 7, 8), 19.5, 0.0, 0.0, comfort_disabled=True, boost_disabled=True),
-    "early_autumn": ThresholdBand((9,), 18.5, 14.0, 0.0, boost_disabled=True),
-    "autumn": ThresholdBand((10,), 17.0, 12.5, 8.0),
-    "late_autumn": ThresholdBand((11,), 16.0, 11.5, 6.0),
+    "winter": ThresholdBand((12, 1, 2), 15.5, 11.0, 5.0, floor_slab_delta=2.0),
+    "late_winter": ThresholdBand((3,), 16.0, 11.5, 6.0, floor_slab_delta=2.0),
+    "spring": ThresholdBand((4,), 17.0, 12.5, 8.0, floor_slab_delta=1.0),
+    "late_spring": ThresholdBand((5,), 18.5, 14.0, 0.0, boost_disabled=True, floor_slab_delta=1.0),
+    "summer": ThresholdBand((6, 7, 8), 19.5, 0.0, 0.0, comfort_disabled=True, boost_disabled=True, floor_slab_delta=0.0),
+    "early_autumn": ThresholdBand((9,), 18.5, 14.0, 0.0, boost_disabled=True, floor_slab_delta=1.0),
+    "autumn": ThresholdBand((10,), 17.0, 12.5, 8.0, floor_slab_delta=1.0),
+    "late_autumn": ThresholdBand((11,), 16.0, 11.5, 6.0, floor_slab_delta=2.0),
 }
 
 TUNING_OPTION_KEYS = (
@@ -243,6 +247,14 @@ def policy_tuning_from_options(options: Mapping[str, Any] | None) -> PolicyTunin
                 default.boost_disabled,
                 sources,
             ),
+            floor_slab_delta=_float_option(
+                options,
+                threshold_option_key(band_key, OPT_FLOOR_SLAB_DELTA),
+                default.floor_slab_delta,
+                sources,
+                min_value=0.0,
+                max_value=5.0,
+            ),
         )
     return PolicyTuning(
         setpoint_off=_float_option(options, OPT_SETPOINT_OFF, SETPOINT_OFF, sources, min_value=5.0, max_value=30.0),
@@ -369,6 +381,11 @@ def threshold_for_month_config(month: int, tuning: PolicyTuning) -> dict[str, fl
     return tuning.threshold_bands[monthly_band(month)].active_thresholds()
 
 
+def floor_slab_delta_for_month(month: int, tuning: PolicyTuning | None = None) -> float:
+    tuning = tuning or default_policy_tuning()
+    return tuning.threshold_bands[monthly_band(month)].floor_slab_delta
+
+
 def setpoint_for(profile: str, effective_temperature: float | None, tuning: PolicyTuning | None = None) -> float:
     tuning = tuning or default_policy_tuning()
     if profile == "off":
@@ -386,6 +403,34 @@ def setpoint_for(profile: str, effective_temperature: float | None, tuning: Poli
     if effective_temperature is not None and effective_temperature <= 12:
         return target + 0.5
     return target
+
+
+def thermostat_target_for(policy_target: float, profile: str, floor_slab_delta: float) -> float:
+    if profile in ("off", "protection"):
+        return policy_target
+    return round(policy_target + floor_slab_delta, 2)
+
+
+def evaluate_room_comfort(room_temperature: float | None, room_humidity: float | None, floor_slab_delta: float) -> RoomComfort:
+    if room_temperature is None:
+        return RoomComfort("unbekannt", "Raumtemperatur fehlt", "missing")
+    quality = "ok" if room_humidity is not None else "degraded"
+    perceived = room_temperature - min(max(floor_slab_delta, 0.0) * 0.25, 0.8)
+    if room_humidity is not None:
+        if room_humidity >= 75:
+            return RoomComfort("schwül", "Temperatur okay, aber Luftfeuchte stark erhöht", quality, round(perceived + 0.4, 1))
+        if room_humidity >= 65:
+            return RoomComfort("feucht", "Temperatur okay, aber Luftfeuchte erhöht", quality, round(perceived + 0.2, 1))
+        if room_humidity <= 35:
+            return RoomComfort("trocken", "Luftfeuchte niedrig", quality, round(perceived, 1))
+    if floor_slab_delta >= 1.5 and room_temperature < 23:
+        return RoomComfort("frisch", "Bodenplatten-Delta aktiv", quality, round(perceived, 1))
+    if perceived < 20:
+        return RoomComfort("kühl", "Raumtemperatur wirkt niedrig", quality, round(perceived, 1))
+    if perceived >= 24:
+        return RoomComfort("warm", "Raumtemperatur wirkt hoch", quality, round(perceived, 1))
+    reason = "Feuchte im Komfortbereich" if room_humidity is not None else "Luftfeuchte fehlt, Temperatur wirkt plausibel"
+    return RoomComfort("angenehm", reason, quality, round(perceived, 1))
 
 
 def night_ramp_target(day_state: str | None) -> float | None:
@@ -412,11 +457,14 @@ def policy_visibility_snapshot(
         "boost_threshold",
         "comfort_disabled",
         "boost_disabled",
+        "floor_slab_delta",
     )
+    floor_slab_delta = floor_slab_delta_for_month(month, tuning)
     return {
         "month": month,
         "active_month_band": band_key,
         "thresholds": thresholds,
+        "floor_slab_delta": floor_slab_delta,
         "comfort_structurally_disabled": thresholds["comfort"] is None,
         "boost_structurally_disabled": thresholds["boost"] is None,
         "setpoints": {
@@ -424,6 +472,10 @@ def policy_visibility_snapshot(
             "spar": setpoint_for("spar", effective_temperature, tuning),
             "komfort": setpoint_for("komfort", effective_temperature, tuning),
             "boost": setpoint_for("boost", effective_temperature, tuning),
+        },
+        "thermostat_setpoints": {
+            profile: thermostat_target_for(setpoint_for(profile, effective_temperature, tuning), profile, floor_slab_delta)
+            for profile in ("off", "spar", "komfort", "boost")
         },
         "hysteresis": {
             "boost_activation_delta": tuning.boost_activation_delta,
@@ -582,7 +634,9 @@ def decide_zone(
             reason = "presence_preheat_caps_to_spar"
             path.append(reason)
 
-    target = target_override if target_override is not None else setpoint_for(profile, teff, tuning)
+    policy_target = target_override if target_override is not None else setpoint_for(profile, teff, tuning)
+    floor_slab_delta = floor_slab_delta_for_month(month, tuning)
+    target = thermostat_target_for(policy_target, profile, floor_slab_delta)
     if not zone_input.thermostat_entity_id:
         blockers.append("thermostat_entity_missing")
 
@@ -597,13 +651,15 @@ def decide_zone(
         zone=zone_input.zone,
         profile=profile,  # type: ignore[arg-type]
         target_temperature=target,
-        raw_target_temperature=target,
+        raw_target_temperature=policy_target,
         reason=reason,
         decision_path=path,
         blocked_by=blockers,
         source_entities=source_entities,
         input_quality=quality,  # type: ignore[arg-type]
         effective_outdoor_temperature=teff,
+        floor_slab_delta=floor_slab_delta,
+        room_comfort=evaluate_room_comfort(zone_input.room_temperature, zone_input.room_humidity, floor_slab_delta),
         is_boost_active=profile == "boost",
         hysteresis_state=profile,
         last_calculated=now.isoformat(),

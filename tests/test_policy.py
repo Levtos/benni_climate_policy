@@ -14,6 +14,7 @@ from custom_components.benni_climate_policy.policy import (
     OPT_SETPOINT_SPAR,
     default_policy_tuning,
     decide_zone,
+    evaluate_room_comfort,
     policy_tuning_from_options,
     policy_visibility_snapshot,
     setpoint_for,
@@ -155,7 +156,8 @@ def test_terrace_door_sustained_open_delay_until_early_night():
 def test_free_time_early_night_holds_comfort_outside_summer():
     plan = decide_zone(zone(), ctx(activity="free_time", day_state="early_night"), eff(14), datetime(2026, 10, 1, 21))
     assert plan.profile == "komfort"
-    assert plan.target_temperature == 22.0
+    assert plan.raw_target_temperature == 22.0
+    assert plan.target_temperature == 23.0
 
 
 def test_night_temperature_ramp_targets():
@@ -164,11 +166,14 @@ def test_night_temperature_ramp_targets():
     late_night = decide_zone(zone(), ctx(day_state="late_night"), eff(14), datetime(2026, 10, 2, 1))
 
     assert late_evening.profile == "komfort"
-    assert late_evening.target_temperature == 23.0
+    assert late_evening.raw_target_temperature == 23.0
+    assert late_evening.target_temperature == 24.0
     assert early_night.profile == "komfort"
-    assert early_night.target_temperature == 22.0
+    assert early_night.raw_target_temperature == 22.0
+    assert early_night.target_temperature == 23.0
     assert late_night.profile == "spar"
-    assert late_night.target_temperature == 21.0
+    assert late_night.raw_target_temperature == 21.0
+    assert late_night.target_temperature == 22.0
 
 
 def test_dynamic_wakeup_cutoff_forces_off():
@@ -202,6 +207,39 @@ def test_policy_tuning_defaults_keep_existing_behavior():
     assert setpoint_for("komfort", 10, tuning) == 23.0
     assert setpoint_for("komfort", 0, tuning) == 23.5
     assert setpoint_for("boost", 18, tuning) == 24.5
+
+
+def test_floor_slab_delta_adds_to_thermostat_target_but_keeps_policy_target():
+    plan = decide_zone(zone(room_temperature=21), ctx(), eff(14), datetime(2026, 1, 1, 12))
+    assert plan.raw_target_temperature == 21.0
+    assert plan.floor_slab_delta == 2.0
+    assert plan.target_temperature == 23.0
+    assert plan.as_dict()["policy_target_temperature"] == 21.0
+    assert plan.as_dict()["thermostat_target_temperature"] == 23.0
+
+
+def test_floor_slab_delta_zero_in_summer_changes_nothing():
+    plan = decide_zone(zone(room_temperature=21), ctx(), eff(18), datetime(2026, 7, 1, 12))
+    assert plan.floor_slab_delta == 0.0
+    assert plan.raw_target_temperature == plan.target_temperature
+
+
+def test_plan_hash_changes_when_floor_slab_delta_changes():
+    base = decide_zone(zone(room_temperature=21), ctx(), eff(14), datetime(2026, 1, 1, 12))
+    tuned = policy_tuning_from_options({threshold_option_key("winter", "floor_slab_delta"): 0.0})
+    changed = decide_zone(zone(room_temperature=21), ctx(), eff(14), datetime(2026, 1, 1, 12), tuning=tuned)
+    assert base.plan_hash != changed.plan_hash
+    assert changed.floor_slab_delta == 0.0
+
+
+def test_room_comfort_labels_and_quality():
+    assert evaluate_room_comfort(21, 45, 0).label == "angenehm"
+    assert evaluate_room_comfort(22, 70, 0).label == "feucht"
+    assert evaluate_room_comfort(24, 78, 0).label == "schwül"
+    assert evaluate_room_comfort(22, 30, 0).label == "trocken"
+    degraded = evaluate_room_comfort(22, None, 0)
+    assert degraded.quality == "degraded"
+    assert degraded.label == "angenehm"
 
 
 def test_policy_tuning_options_override_setpoints():
