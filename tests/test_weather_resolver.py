@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from custom_components.benni_climate_policy.const import (
     CONF_FORECAST_TEMPERATURE,
@@ -10,6 +10,7 @@ from custom_components.benni_climate_policy.const import (
 )
 from custom_components.benni_climate_policy.weather_resolver import (
     AUTO_WEATHER_ENTITY,
+    DEFAULT_FORECAST_CACHE_TTL_SECONDS,
     WeatherResolver,
     fallback_feels_like,
     fallback_forecast,
@@ -120,6 +121,59 @@ def test_forecast_3h_is_resolved_from_hourly_weather_forecast():
     assert result.forecast.weather_entity == AUTO_WEATHER_ENTITY
     assert result.forecast.reason == "nearest_hourly_forecast"
     assert hass.services.calls[0]["data"] == {"entity_id": AUTO_WEATHER_ENTITY, "type": "hourly"}
+
+
+def test_weather_forecast_service_response_is_cached_between_resolver_runs():
+    forecasts = [
+        {"datetime": "2026-06-02T17:00:00+00:00", "temperature": 16.0},
+        {"datetime": "2026-06-02T18:00:00+00:00", "temperature": 17.0},
+        {"datetime": "2026-06-02T19:00:00+00:00", "temperature": 18.0},
+    ]
+    hass = _Hass(
+        {AUTO_WEATHER_ENTITY: "rainy"},
+        {AUTO_WEATHER_ENTITY: {"forecast": forecasts}},
+    )
+    cache = {}
+
+    first = _run(WeatherResolver(hass, {}, forecast_cache=cache).async_resolve(
+        real_temperature=10.0,
+        now=datetime(2026, 6, 2, 14, 0, tzinfo=timezone.utc),
+    ))
+    second = _run(WeatherResolver(hass, {}, forecast_cache=cache).async_resolve(
+        real_temperature=10.0,
+        now=datetime(2026, 6, 2, 14, 5, tzinfo=timezone.utc),
+    ))
+
+    assert len(hass.services.calls) == 1
+    assert first.forecast.cache_hit is False
+    assert second.forecast.cache_hit is True
+    assert second.forecast.reason == "cached_nearest_hourly_forecast"
+    assert second.forecast.cache_age_seconds == 300
+    assert second.forecast.last_fetch_at == "2026-06-02T14:00:00+00:00"
+
+
+def test_stale_weather_forecast_cache_is_refetched():
+    forecasts = [
+        {"datetime": "2026-06-02T17:00:00+00:00", "temperature": 16.0},
+        {"datetime": "2026-06-02T18:00:00+00:00", "temperature": 17.0},
+    ]
+    hass = _Hass(
+        {AUTO_WEATHER_ENTITY: "rainy"},
+        {AUTO_WEATHER_ENTITY: {"forecast": forecasts}},
+    )
+    cache = {}
+
+    _run(WeatherResolver(hass, {}, forecast_cache=cache).async_resolve(
+        real_temperature=10.0,
+        now=datetime(2026, 6, 2, 14, 0, tzinfo=timezone.utc),
+    ))
+    _run(WeatherResolver(hass, {}, forecast_cache=cache).async_resolve(
+        real_temperature=10.0,
+        now=datetime(2026, 6, 2, 14, 0, tzinfo=timezone.utc)
+        + timedelta(seconds=DEFAULT_FORECAST_CACHE_TTL_SECONDS + 1),
+    ))
+
+    assert len(hass.services.calls) == 2
 
 
 def test_nearest_forecast_point_to_now_plus_3h_is_selected():

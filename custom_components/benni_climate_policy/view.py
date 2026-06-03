@@ -89,7 +89,7 @@ class ClimatePolicyDebugView(HomeAssistantView):
         if coord is None:
             return self.json({"error": "coordinator_not_available"}, status_code=404)
         if coord.decision is None:
-            await coord.async_evaluate(auto_apply=False)
+            await coord.async_evaluate(auto_apply=False, reason="debug_endpoint_without_decision")
         decision = coord.decision
         if decision is None:
             return self.json({"error": "decision_not_available"}, status_code=503)

@@ -15,6 +15,8 @@ const ENTITIES = {
   bathroomFanBlocked: "binary_sensor.bathroom_fan_apply_blocked",
 };
 const DEBUG_API_PATH = `${DOMAIN}/debug`;
+const DEBUG_REFRESH_MS = 60000;
+const DEBUG_VIEWS = new Set(["context", "bathroom", "thresholds", "apply", "inputs", "debug"]);
 const JSON_CACHE = new WeakMap();
 
 const ZONES = {
@@ -776,6 +778,10 @@ function renderDebug(hass, app) {
     || Object.values(planMap).map((p) => p.apply_block_reason).filter(Boolean).join(", ")
     || "none";
   return `<div class="grid cols-2">
+    <div class="card"><h2>${icon("mdi:speedometer")}Performance</h2>
+      ${Object.entries(full.performance || payload.performance || {}).map(([k, v]) => kv(k, v, "mono")).join("") || kv("performance", "not exposed yet")}
+      ${kv("debug_endpoint_last_fetch", app?._debugLastFetch ? new Date(app._debugLastFetch).toISOString() : "never", "mono")}
+    </div>
     <div class="card"><h2>${icon("mdi:routes")}Letzter Decision Path</h2>${jsonDetails("Decision Path als JSON anzeigen", paths)}</div>
     <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonDetails("Thresholds als JSON anzeigen", thresholds(hass, app))}</div>
     <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonDetails("Context als JSON anzeigen", contextSnapshot(hass, app))}</div>
@@ -848,15 +854,17 @@ class BcpApp extends HTMLElement {
 
   _ensureDebugFetch(force = false) {
     if (!this._hass || !this._hass.callApi || this._debugFetchInFlight) return;
+    if (!force && !this._viewNeedsDebug()) return;
     const now = Date.now();
-    if (!force && this._debugLastFetch && now - this._debugLastFetch < 15000) return;
+    if (!force && this._debugLastFetch && now - this._debugLastFetch < DEBUG_REFRESH_MS) return;
     this._fetchDebugPayload(force);
   }
 
   async _fetchDebugPayload(force = false) {
     if (!this._hass || !this._hass.callApi || this._debugFetchInFlight) return;
+    if (!force && !this._viewNeedsDebug()) return;
     const now = Date.now();
-    if (!force && this._debugLastFetch && now - this._debugLastFetch < 15000) return;
+    if (!force && this._debugLastFetch && now - this._debugLastFetch < DEBUG_REFRESH_MS) return;
     this._debugFetchInFlight = true;
     this._debugLastFetch = now;
     try {
@@ -877,7 +885,7 @@ class BcpApp extends HTMLElement {
     const view = NAV.find(([id]) => id === this._view) || NAV[0];
     const renderer = RENDERERS[view[0]] || renderOverview;
     const hass = this._hass;
-    if (hass && !this._debugPayload && !this._debugFetchInFlight) {
+    if (hass && this._viewNeedsDebug() && !this._debugPayload && !this._debugFetchInFlight) {
       this._ensureDebugFetch();
     }
     const sys = stateText(hass, ENTITIES.systemReady);
@@ -915,6 +923,7 @@ class BcpApp extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-view]").forEach((btn) => {
       btn.addEventListener("click", () => {
         this._view = btn.dataset.view;
+        this._ensureDebugFetch();
         this._render();
       });
     });
@@ -925,6 +934,10 @@ class BcpApp extends HTMLElement {
       input.addEventListener("input", () => this._handleTuningInput(input));
       input.addEventListener("change", () => this._handleTuningInput(input));
     });
+  }
+
+  _viewNeedsDebug() {
+    return DEBUG_VIEWS.has(this._view);
   }
 
   _ensureTuningDraft(data) {

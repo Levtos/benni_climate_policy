@@ -90,5 +90,6 @@ def full_debug_payload(
         if isinstance(debug.get("effective_inputs"), Mapping)
         else None,
         "bathroom": debug.get("bathroom"),
+        "performance": debug.get("performance"),
         "debug": dict(debug),
     }

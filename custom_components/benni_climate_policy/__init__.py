@@ -32,7 +32,7 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {DATA_COORDINATOR: coord}
 
     coord.async_start()
-    await coord.async_evaluate(auto_apply=False)
+    await coord.async_evaluate(auto_apply=False, reason="setup_entry")
     from .view import async_setup_view
 
     await async_setup_view(hass)
@@ -101,7 +101,7 @@ def _register_services(hass: "HomeAssistant") -> None:
 
     async def _recalculate(_call: "ServiceCall") -> None:
         for coord in _coordinators(hass):
-            await coord.async_evaluate(auto_apply=False)
+            await coord.async_evaluate(auto_apply=False, reason="service_recalculate")
 
     async def _dry_run(call: "ServiceCall") -> None:
         zone = call.data.get("zone")
