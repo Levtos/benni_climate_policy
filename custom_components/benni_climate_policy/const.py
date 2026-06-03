@@ -67,6 +67,12 @@ PANEL_ELEMENT = "bcp-app"
 PANEL_TITLE = "Climate Policy"
 PANEL_ICON = "mdi:thermostat"
 
+SELF_GENERATED_INPUT_ENTITY_IDS = frozenset({
+    "sensor.climate_effective_outdoor_temperature",
+    "sensor.climate_forecast_temperature_3h",
+    "sensor.climate_outdoor_feels_like_temperature",
+})
+
 PRESET = {
     CONF_CONTEXT_ACTIVITY: "sensor.context_activity_state_combined",
     CONF_CONTEXT_BIO: "sensor.context_bio_state_combined",
