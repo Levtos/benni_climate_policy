@@ -119,6 +119,17 @@ def test_bathroom_fan_acute_afterrun_stoss_and_end_thresholds():
     acute = decide_bathroom_fan(humidity_input(bath_humidity=76), heating, now=now, day_state="afternoon", last_fan_active_at=now, tuning=tuning)
     assert acute.mode == "akut"
 
+    acute_rise = decide_bathroom_fan(
+        BathroomHumidityInput(24, 65, 21, 50, previous_bathroom_humidity=49, previous_bathroom_humidity_at=now - timedelta(minutes=4)),
+        heating,
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert acute_rise.mode == "akut"
+    assert acute_rise.diagnostics["bathroom_humidity_rise_5m"] == 16
+
     afterrun = decide_bathroom_fan(humidity_input(bath_temp=22, bath_humidity=55, living_temp=21, living_humidity=50), heating, now=now, day_state="afternoon", last_fan_active_at=now, tuning=tuning)
     assert afterrun.mode == "nachluft"
 

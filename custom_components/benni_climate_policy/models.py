@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import json
 from typing import Any, Literal
@@ -85,6 +85,8 @@ class EffectiveTemperatureBreakdown:
 class WindowState:
     open_state: str | None = None
     tilt_state: str | None = None
+    active_since: datetime | None = None
+    sustained_open_delay: timedelta = timedelta(0)
 
     @property
     def open_blocks(self) -> bool:
@@ -97,6 +99,15 @@ class WindowState:
     @property
     def blocks_heating(self) -> bool:
         return self.open_blocks or self.tilt_blocks
+
+    def blocks_heating_at(self, now: datetime, *, immediate: bool = False) -> bool:
+        if not self.blocks_heating:
+            return False
+        if immediate or self.sustained_open_delay <= timedelta(0):
+            return True
+        if self.active_since is None:
+            return True
+        return now - self.active_since >= self.sustained_open_delay
 
 
 @dataclass(frozen=True)

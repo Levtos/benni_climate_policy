@@ -198,6 +198,7 @@
           "bath_bonus_teff_5": "Bathroom bonus at Teff <= 5",
           "bath_bonus_teff_warm": "Bathroom bonus/malus at Teff > 15",
           "bath_humidity_acute_threshold": "Fan acute humidity threshold",
+          "bath_humidity_acute_rise_threshold": "Fan acute humidity rise threshold",
           "bath_humidity_end_threshold": "Fan end humidity threshold",
           "bath_dewpoint_acute_threshold": "Fan acute dewpoint threshold",
           "bath_ah_delta_afterrun_on": "Afterrun AH delta on",
