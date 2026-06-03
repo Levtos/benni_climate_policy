@@ -87,6 +87,32 @@ def test_user_configured_forecast_entity_has_priority():
     assert hass.services.calls == []
 
 
+def test_self_generated_forecast_sensor_is_not_used_as_external_input():
+    forecasts = [
+        {"datetime": "2026-06-02T17:00:00+00:00", "temperature": 15.0},
+        {"datetime": "2026-06-02T18:00:00+00:00", "temperature": 16.0},
+    ]
+    hass = _Hass(
+        {
+            "sensor.climate_forecast_temperature_3h": "99.0",
+            AUTO_WEATHER_ENTITY: "rainy",
+        },
+        {AUTO_WEATHER_ENTITY: {"forecast": forecasts}},
+    )
+
+    result = _run(WeatherResolver(
+        hass,
+        {CONF_FORECAST_TEMPERATURE: "sensor.climate_forecast_temperature_3h"},
+    ).async_resolve(
+        real_temperature=10.0,
+        now=datetime(2026, 6, 2, 14, tzinfo=timezone.utc),
+    ))
+
+    assert result.forecast_temperature == 15.0
+    assert result.forecast.source == "weather_forecast"
+    assert hass.services.calls[0]["data"] == {"entity_id": AUTO_WEATHER_ENTITY, "type": "hourly"}
+
+
 def test_user_configured_feels_like_entity_has_priority():
     hass = _Hass({"sensor.feels": "8.5"})
 
@@ -98,6 +124,21 @@ def test_user_configured_feels_like_entity_has_priority():
     assert result.feels_like_temperature == 8.5
     assert result.feels_like.source == "entity"
     assert result.feels_like.fallback_used is False
+
+
+def test_self_generated_feels_like_sensor_is_not_used_as_external_input():
+    hass = _Hass({"sensor.climate_outdoor_feels_like_temperature": "99.0"})
+
+    result = _run(WeatherResolver(
+        hass,
+        {CONF_OUTDOOR_FEELS_LIKE: "sensor.climate_outdoor_feels_like_temperature"},
+    ).async_resolve(
+        real_temperature=10.0,
+        now=datetime(2026, 6, 2, 14, tzinfo=timezone.utc),
+    ))
+
+    assert result.feels_like_temperature == 10.0
+    assert result.feels_like.source == "fallback_real_temperature"
 
 
 def test_forecast_3h_is_resolved_from_hourly_weather_forecast():

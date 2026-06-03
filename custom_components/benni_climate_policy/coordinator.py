@@ -42,6 +42,7 @@ from .const import (
     DEFAULT_STARTUP_BLOCK_SECONDS,
     HEATING_ZONES,
     PRESET,
+    SELF_GENERATED_INPUT_ENTITY_IDS,
     ZONE_BATHROOM,
     ZONE_KITCHEN,
     ZONE_LIVING,
@@ -121,6 +122,10 @@ def _input_status(state_value: str | None) -> str:
     return "ok"
 
 
+def _is_watchable_entity_id(value: Any) -> bool:
+    return isinstance(value, str) and "." in value and value not in SELF_GENERATED_INPUT_ENTITY_IDS
+
+
 class ClimatePolicyCoordinator:
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
@@ -193,7 +198,7 @@ class ClimatePolicyCoordinator:
         else:
             self._unsub.append(self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._on_started))
 
-        watch = {v for v in self.config.values() if isinstance(v, str) and "." in v}
+        watch = {v for v in self.config.values() if _is_watchable_entity_id(v)}
         if watch:
             self._unsub.append(async_track_state_change_event(self.hass, list(watch), self._on_state_change))
         self._unsub.append(async_track_time_interval(self.hass, self._on_interval, timedelta(minutes=15)))

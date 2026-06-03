@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any, Mapping
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from .const import CONF_FORECAST_TEMPERATURE, CONF_OUTDOOR_FEELS_LIKE, CONF_WEATHER_ENTITY
+from .const import (
+    CONF_FORECAST_TEMPERATURE,
+    CONF_OUTDOOR_FEELS_LIKE,
+    CONF_WEATHER_ENTITY,
+    SELF_GENERATED_INPUT_ENTITY_IDS,
+)
 from .models import Quality
 
 AUTO_WEATHER_ENTITY = "weather.dwd_home"
@@ -195,6 +200,11 @@ class WeatherResolver:
     def _state(self, entity_id: str | None):
         return self.hass.states.get(entity_id) if entity_id else None
 
+    def _external_entity_id(self, entity_id: Any) -> str | None:
+        if not isinstance(entity_id, str) or entity_id in SELF_GENERATED_INPUT_ENTITY_IDS:
+            return None
+        return entity_id
+
     def _weather_state_available(self, entity_id: str | None) -> bool:
         state = self._state(entity_id)
         return bool(state) and state.state not in (None, "", "unknown", "unavailable")
@@ -228,7 +238,7 @@ class WeatherResolver:
         target_time: datetime,
         now: datetime,
     ) -> ForecastDiagnostics:
-        entity_id = self.config.get(CONF_FORECAST_TEMPERATURE)
+        entity_id = self._external_entity_id(self.config.get(CONF_FORECAST_TEMPERATURE))
         entity_value = self._float_state(entity_id)
         if entity_value is not None:
             return ForecastDiagnostics(
@@ -381,7 +391,7 @@ class WeatherResolver:
         )
 
     def _resolve_feels_like(self, *, real_temperature: float | None) -> FeelsLikeDiagnostics:
-        entity_id = self.config.get(CONF_OUTDOOR_FEELS_LIKE)
+        entity_id = self._external_entity_id(self.config.get(CONF_OUTDOOR_FEELS_LIKE))
         entity_value = self._float_state(entity_id)
         if entity_value is not None:
             return FeelsLikeDiagnostics(

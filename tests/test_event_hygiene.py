@@ -60,6 +60,13 @@ def test_coordinator_debounces_state_change_recalculations():
     assert "state_change:" in COORDINATOR_SOURCE
 
 
+def test_coordinator_does_not_watch_self_generated_temperature_inputs():
+    assert "SELF_GENERATED_INPUT_ENTITY_IDS" in COORDINATOR_SOURCE
+    assert "def _is_watchable_entity_id" in COORDINATOR_SOURCE
+    assert "value not in SELF_GENERATED_INPUT_ENTITY_IDS" in COORDINATOR_SOURCE
+    assert "if _is_watchable_entity_id(v)" in COORDINATOR_SOURCE
+
+
 def test_debug_payload_exposes_compact_performance_diagnostics():
     assert '"performance"' in COORDINATOR_SOURCE
     assert '"last_recalculate_at"' in COORDINATOR_SOURCE
