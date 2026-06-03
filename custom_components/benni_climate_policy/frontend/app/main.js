@@ -16,7 +16,7 @@ const ENTITIES = {
 };
 const DEBUG_API_PATH = `${DOMAIN}/debug`;
 const DEBUG_REFRESH_MS = 60000;
-const DEBUG_VIEWS = new Set(["context", "bathroom", "thresholds", "apply", "inputs", "debug"]);
+const DEBUG_VIEWS = new Set(["overview", "zones", "thresholds", "apply", "debug"]);
 const JSON_CACHE = new WeakMap();
 
 const ZONES = {
@@ -53,15 +53,11 @@ const ZONES = {
 };
 
 const NAV = [
-  ["overview", "Overview", "mdi:view-dashboard-outline"],
-  ["context", "Context", "mdi:account-clock-outline"],
-  ["zones", "Zones", "mdi:home-thermometer-outline"],
-  ["bathroom", "Bathroom", "mdi:shower-head"],
+  ["overview", "Übersicht", "mdi:view-dashboard-outline"],
+  ["zones", "Räume", "mdi:home-thermometer-outline"],
+  ["apply", "Automatik", "mdi:toggle-switch-outline"],
   ["thresholds", "Tuning", "mdi:tune-vertical-variant"],
-  ["effective", "Effective Temp", "mdi:thermometer-lines"],
-  ["apply", "Apply", "mdi:play-circle-outline"],
-  ["inputs", "Inputs", "mdi:database-search-outline"],
-  ["debug", "Debug", "mdi:code-json"],
+  ["debug", "Diagnose", "mdi:alert-circle-outline"],
 ];
 
 const THRESHOLD_BANDS = [
@@ -119,104 +115,313 @@ const TUNING_GROUPS = [
 const CSS = `
 :host, * { box-sizing: border-box; }
 :host {
-  --bcp-bg: var(--primary-background-color, #f5f6f8);
-  --bcp-surface: var(--card-background-color, #ffffff);
-  --bcp-panel: var(--secondary-background-color, #eef1f5);
-  --bcp-line: var(--divider-color, #d8dde5);
-  --bcp-text: var(--primary-text-color, #111827);
-  --bcp-muted: var(--secondary-text-color, #64748b);
-  --bcp-accent: var(--primary-color, #2563eb);
-  --bcp-ok: #16803c;
-  --bcp-warn: #9a6700;
-  --bcp-error: #b42318;
-  --bcp-info: #0369a1;
+  --bcp-bg: #070b1c;
+  --bcp-surface: rgba(27, 31, 54, .86);
+  --bcp-surface-strong: rgba(35, 40, 70, .94);
+  --bcp-panel: #0d1228;
+  --bcp-panel-soft: rgba(17, 23, 47, .82);
+  --bcp-line: rgba(151, 161, 208, .18);
+  --bcp-text: #f5f6ff;
+  --bcp-muted: #b5bad6;
+  --bcp-faint: #7c83aa;
+  --bcp-accent: #22c7ff;
+  --bcp-purple: #a56cff;
+  --bcp-pink: #ff62b7;
+  --bcp-green: #50fa7b;
+  --bcp-blue: #45a6ff;
+  --bcp-cyan: #00e5ff;
+  --bcp-yellow: #f1fa8c;
+  --bcp-ok: #50fa7b;
+  --bcp-warn: #ffb86c;
+  --bcp-error: #ff5555;
+  --bcp-info: #45a6ff;
   display: block;
   min-height: 100vh;
   color: var(--bcp-text);
   font-family: var(--paper-font-body1_-_font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
 }
-.app { display: grid; grid-template-columns: 238px minmax(0, 1fr); min-height: 100vh; background: var(--bcp-bg); }
-.sidebar { border-right: 1px solid var(--bcp-line); background: var(--bcp-panel); padding: 16px 10px; display: flex; flex-direction: column; gap: 14px; }
-.brand { display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: center; padding: 4px 8px 10px; }
-.brand ha-icon { color: var(--bcp-accent); }
-.brand b { display: block; font-size: 15px; line-height: 1.2; }
+.app {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 78% 6%, rgba(34, 199, 255, .11), transparent 28%),
+    linear-gradient(135deg, #070b1c 0%, #10142a 52%, #090d20 100%);
+}
+.sidebar {
+  border-right: 1px solid var(--bcp-line);
+  background: linear-gradient(180deg, rgba(12, 17, 36, .96), rgba(8, 12, 28, .98));
+  padding: 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.brand { display: grid; grid-template-columns: 46px 1fr; gap: 12px; align-items: center; padding: 0 4px 10px; }
+.brand-badge {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--bcp-purple), var(--bcp-accent));
+  color: #08111f;
+  box-shadow: 0 14px 34px rgba(34, 199, 255, .22);
+}
+.brand b { display: block; font-size: 16px; line-height: 1.2; }
 .brand small { color: var(--bcp-muted); font-size: 12px; }
-.nav { display: flex; flex-direction: column; gap: 3px; }
-.nav button { display: grid; grid-template-columns: 22px 1fr; gap: 9px; align-items: center; width: 100%; min-height: 39px;
-  border: 0; border-radius: 8px; padding: 8px 10px; background: transparent; color: var(--bcp-muted); text-align: left; cursor: pointer; font: inherit; }
-.nav button:hover { background: color-mix(in srgb, var(--bcp-accent) 8%, transparent); color: var(--bcp-text); }
-.nav button.active { background: color-mix(in srgb, var(--bcp-accent) 15%, transparent); color: var(--bcp-accent); font-weight: 650; }
-.side-foot { margin-top: auto; border-top: 1px solid var(--bcp-line); padding: 11px 8px 0; color: var(--bcp-muted); font-size: 12px; overflow-wrap: anywhere; }
-.main { min-width: 0; padding: 22px 26px 32px; }
-.head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
-.head h1 { margin: 0; font-size: 23px; letter-spacing: 0; }
-.head p { margin: 3px 0 0; color: var(--bcp-muted); font-size: 13px; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.grid { display: grid; gap: 12px; }
+.nav { display: flex; flex-direction: column; gap: 8px; }
+.nav button {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: transparent;
+  color: var(--bcp-muted);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.nav button:hover { background: rgba(255, 255, 255, .04); color: var(--bcp-text); }
+.nav button.active {
+  background: linear-gradient(90deg, rgba(165, 108, 255, .30), rgba(34, 199, 255, .09));
+  border-color: rgba(165, 108, 255, .24);
+  color: var(--bcp-accent);
+  font-weight: 700;
+}
+.side-foot {
+  margin-top: auto;
+  border-top: 1px solid var(--bcp-line);
+  padding: 18px 8px 0;
+  color: var(--bcp-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.side-status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--bcp-text); }
+.main { min-width: 0; padding: 24px 28px 32px; }
+.head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
+.head h1 { margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: 0; }
+.head p { margin: 6px 0 0; color: var(--bcp-muted); font-size: 14px; }
+.chips { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.grid { display: grid; gap: 16px; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.section { margin-top: 16px; }
-.card { background: var(--bcp-surface); border: 1px solid var(--bcp-line); border-radius: 8px; padding: 14px; min-width: 0; }
-.card h2 { margin: 0 0 11px; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.section { margin-top: 18px; }
+.card, .metric, .hero, .info-band {
+  background: linear-gradient(145deg, rgba(31, 36, 62, .92), rgba(18, 23, 45, .86));
+  border: 1px solid var(--bcp-line);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 22px 60px rgba(0,0,0,.18);
+}
+.card { padding: 18px; min-width: 0; }
+.card h2 { margin: 0 0 14px; font-size: 16px; display: flex; gap: 10px; align-items: center; }
 .card h2 ha-icon { color: var(--bcp-accent); }
-.metric { background: var(--bcp-surface); border: 1px solid var(--bcp-line); border-radius: 8px; padding: 12px 13px; min-height: 78px; }
-.metric .label { color: var(--bcp-muted); font-size: 12px; margin-bottom: 6px; }
-.metric .value { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
-.metric .entity { margin-top: 5px; color: var(--bcp-muted); font-size: 11px; font-family: ui-monospace, "Cascadia Code", monospace; overflow-wrap: anywhere; }
-.kv { display: grid; grid-template-columns: minmax(130px, .7fr) minmax(0, 1fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--bcp-line); }
-.kv:last-child { border-bottom: 0; }
-.k { color: var(--bcp-muted); font-size: 13px; }
-.v { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-.mono { font-family: ui-monospace, "Cascadia Code", monospace; font-size: 12px; }
-.muted { color: var(--bcp-muted); }
-.status { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--bcp-line); border-radius: 999px; padding: 3px 9px; font-size: 12px; font-weight: 650; white-space: nowrap; }
-.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.hero {
+  min-height: 250px;
+  padding: 34px 38px;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 320px;
+  gap: 26px;
+  align-items: center;
+  overflow: hidden;
+  position: relative;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -20px 0 auto;
+  width: 440px;
+  height: 190px;
+  opacity: .74;
+  background:
+    linear-gradient(135deg, transparent 48%, rgba(34, 199, 255, .72) 49% 51%, transparent 52%) 32px 10px / 160px 130px no-repeat,
+    linear-gradient(90deg, transparent 46%, rgba(34, 199, 255, .35) 47% 49%, transparent 50%) 175px 54px / 110px 120px no-repeat,
+    radial-gradient(ellipse at bottom, rgba(34, 199, 255, .24), transparent 62%);
+  pointer-events: none;
+}
+.hero-icon, .round-icon {
+  display: grid;
+  place-items: center;
+  width: 106px;
+  height: 106px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 25%, rgba(165, 108, 255, .75), rgba(34, 199, 255, .22) 66%, rgba(34, 199, 255, .06));
+}
+.hero-icon ha-icon { --mdc-icon-size: 58px; color: var(--bcp-accent); }
+.hero h2 { margin: 0; font-size: 30px; line-height: 1.28; max-width: 760px; }
+.hero p { color: var(--bcp-muted); margin: 14px 0 20px; font-size: 15px; }
+.hero .accent { color: var(--bcp-accent); }
+.hero .pink { color: var(--bcp-pink); }
+.hero .purple { color: var(--bcp-purple); }
+.hero-side { position: relative; z-index: 1; align-self: stretch; display: flex; align-items: flex-start; justify-content: flex-end; }
+.cloud-temp {
+  margin-top: 18px;
+  padding: 18px 24px;
+  border-radius: 999px;
+  background: rgba(46, 43, 95, .62);
+  color: #8aa6ff;
+  font-size: 30px;
+  font-weight: 800;
+}
+.metric { padding: 16px 18px; min-height: 96px; }
+.metric .label { color: var(--bcp-muted); font-size: 13px; margin-bottom: 8px; }
+.metric .value { font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
+.metric .entity { margin-top: 7px; color: var(--bcp-faint); font-size: 11px; font-family: ui-monospace, "Cascadia Code", monospace; overflow-wrap: anywhere; }
+.mini-stat { display: flex; gap: 14px; align-items: center; min-width: 0; }
+.mini-stat ha-icon { color: var(--bcp-accent); --mdc-icon-size: 30px; }
+.mini-stat b { display: block; font-size: 20px; }
+.mini-stat span { color: var(--bcp-muted); font-size: 12px; }
+.room-card { padding: 22px; min-height: 360px; display: flex; flex-direction: column; }
+.room-head { display: grid; grid-template-columns: 64px 1fr auto; gap: 16px; align-items: start; margin-bottom: 22px; }
+.room-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(165, 108, 255, .72), rgba(34, 199, 255, .22));
+}
+.room-icon ha-icon { --mdc-icon-size: 34px; color: var(--bcp-text); }
+.room-card h3 { margin: 0; font-size: 21px; }
+.mode { color: var(--bcp-purple); font-size: 20px; font-weight: 800; }
+.target { color: var(--bcp-accent); font-size: 28px; font-weight: 850; white-space: nowrap; }
+.reason { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; margin: 16px 0; }
+.reason ha-icon { color: var(--bcp-accent); }
+.reason small { display: block; color: var(--bcp-muted); margin-bottom: 4px; }
+.room-facts { margin-top: auto; border-top: 1px solid var(--bcp-line); padding-top: 12px; }
+.fact-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; color: var(--bcp-muted); }
+.fact-row b { color: var(--bcp-text); font-weight: 600; text-align: right; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.status, .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--bcp-line);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgba(8, 12, 28, .28);
+}
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 14px currentColor; }
 .ok { color: var(--bcp-ok); }
 .warn { color: var(--bcp-warn); }
 .error { color: var(--bcp-error); }
 .info { color: var(--bcp-info); }
+.pill.green { color: var(--bcp-green); border-color: rgba(80, 250, 123, .26); background: rgba(80, 250, 123, .10); }
+.pill.blue { color: var(--bcp-blue); border-color: rgba(69, 166, 255, .26); background: rgba(69, 166, 255, .10); }
+.pill.purple { color: var(--bcp-purple); border-color: rgba(165, 108, 255, .30); background: rgba(165, 108, 255, .12); }
+.pill.pink { color: var(--bcp-pink); border-color: rgba(255, 98, 183, .28); background: rgba(255, 98, 183, .11); }
+.kv { display: grid; grid-template-columns: minmax(145px, .65fr) minmax(0, 1fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--bcp-line); }
+.kv:last-child { border-bottom: 0; }
+.k { color: var(--bcp-muted); font-size: 13px; }
+.v { font-size: 13px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+.mono { font-family: ui-monospace, "Cascadia Code", monospace; font-size: 12px; }
+.muted { color: var(--bcp-muted); }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 8px 9px; border-bottom: 1px solid var(--bcp-line); text-align: left; vertical-align: top; font-size: 13px; }
-th { color: var(--bcp-muted); font-size: 12px; font-weight: 650; }
+th, td { padding: 10px 11px; border-bottom: 1px solid var(--bcp-line); text-align: left; vertical-align: top; font-size: 13px; }
+th { color: var(--bcp-muted); font-size: 12px; font-weight: 750; }
 .table-wrap { overflow-x: auto; }
-.pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bcp-panel); border: 1px solid var(--bcp-line); border-radius: 8px; padding: 11px; max-height: 360px; min-height: 96px; overflow: auto; scrollbar-gutter: stable; contain: content; }
-.json-details summary { cursor: pointer; color: var(--bcp-muted); font-size: 13px; margin-bottom: 8px; }
+.pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgba(6, 10, 24, .78);
+  border: 1px solid var(--bcp-line);
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 340px;
+  min-height: 96px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  contain: content;
+}
+.json-details, .expert { border: 1px solid var(--bcp-line); border-radius: 8px; padding: 12px 14px; background: rgba(8, 12, 28, .22); }
+.json-details summary, .expert summary { cursor: pointer; color: var(--bcp-muted); font-size: 13px; }
+.json-details[open] summary, .expert[open] summary { margin-bottom: 10px; }
 .apply-summary { min-width: 760px; }
 .apply-summary td, .apply-summary th { vertical-align: middle; }
-.actions { display: flex; flex-wrap: wrap; gap: 9px; }
-button.action { display: inline-grid; grid-template-columns: 18px auto; gap: 7px; align-items: center; min-height: 36px; border: 1px solid var(--bcp-line);
-  border-radius: 8px; background: var(--bcp-surface); color: var(--bcp-text); padding: 8px 11px; cursor: pointer; font: inherit; }
-button.action:hover { border-color: var(--bcp-accent); }
-button.action.primary { background: var(--bcp-accent); color: var(--text-primary-color, #fff); border-color: var(--bcp-accent); }
-button.action[disabled] { opacity: .55; cursor: not-allowed; }
-.tuning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.matrix { min-width: 900px; }
-.matrix input[type="number"] { width: 92px; }
-.matrix td, .matrix th { vertical-align: middle; }
-.field-row { display: grid; grid-template-columns: minmax(150px, 1fr) 132px 86px; gap: 9px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--bcp-line); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+button.action {
+  display: inline-grid;
+  grid-template-columns: 18px auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 40px;
+  border: 1px solid var(--bcp-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  color: var(--bcp-text);
+  padding: 9px 13px;
+  cursor: pointer;
+  font: inherit;
+}
+button.action:hover { border-color: rgba(34, 199, 255, .6); }
+button.action.primary {
+  background: linear-gradient(135deg, var(--bcp-purple), var(--bcp-accent));
+  color: #ffffff;
+  border-color: transparent;
+}
+button.action[disabled] { opacity: .48; cursor: not-allowed; }
+.tuning-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.season-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.season-card { padding: 14px; border: 1px solid var(--bcp-line); border-radius: 8px; background: rgba(255,255,255,.035); }
+.season-card.active { border-color: rgba(165, 108, 255, .78); box-shadow: 0 0 0 1px rgba(165, 108, 255, .18); }
+.season-card h3 { margin: 0 0 4px; font-size: 15px; }
+.season-card small { color: var(--bcp-muted); }
+.season-values { display: grid; gap: 8px; margin: 14px 0; }
+.season-values label { display: grid; grid-template-columns: 1fr 96px; gap: 8px; align-items: center; color: var(--bcp-muted); font-size: 12px; }
+.field-row { display: grid; grid-template-columns: minmax(128px, 1fr) 112px; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--bcp-line); }
 .field-row:last-child { border-bottom: 0; }
-.field-row.dirty, tr.dirty { background: color-mix(in srgb, var(--bcp-warn) 9%, transparent); }
-.field-row input, .matrix input { min-height: 32px; border: 1px solid var(--bcp-line); border-radius: 6px; padding: 5px 7px; background: var(--bcp-surface); color: var(--bcp-text); font: inherit; }
-.field-row input:disabled, .matrix input:disabled { opacity: .55; background: var(--bcp-panel); }
+.field-row.dirty, tr.dirty, .season-card.dirty { background: rgba(255, 184, 108, .08); }
+.field-row input, .matrix input, .season-card input {
+  min-height: 34px;
+  border: 1px solid var(--bcp-line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(7, 11, 28, .8);
+  color: var(--bcp-text);
+  font: inherit;
+}
+.field-row input:disabled, .matrix input:disabled, .season-card input:disabled { opacity: .55; background: rgba(8, 12, 28, .45); }
 .source-pill { display: inline-flex; align-items: center; border: 1px solid var(--bcp-line); border-radius: 999px; padding: 2px 7px; font-size: 11px; color: var(--bcp-muted); white-space: nowrap; }
-.source-pill.user { color: var(--bcp-info); border-color: color-mix(in srgb, var(--bcp-info) 35%, var(--bcp-line)); }
-.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.error-box { border: 1px solid color-mix(in srgb, var(--bcp-error) 45%, var(--bcp-line)); background: color-mix(in srgb, var(--bcp-error) 9%, var(--bcp-surface)); color: var(--bcp-error); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
-.notice { border: 1px dashed var(--bcp-line); border-radius: 8px; padding: 13px; color: var(--bcp-muted); background: color-mix(in srgb, var(--bcp-panel) 70%, transparent); }
-.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--bcp-surface); border: 1px solid var(--bcp-line);
-  border-radius: 8px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.22); z-index: 10; }
-@media (max-width: 980px) {
+.source-pill.user { color: var(--bcp-info); border-color: rgba(69, 166, 255, .38); }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.error-box { border: 1px solid rgba(255, 85, 85, .55); background: rgba(255, 85, 85, .10); color: var(--bcp-error); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.notice { border: 1px dashed var(--bcp-line); border-radius: 8px; padding: 14px; color: var(--bcp-muted); background: rgba(255, 255, 255, .035); }
+.info-band { padding: 18px 20px; display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: center; }
+.info-band ha-icon { color: var(--bcp-accent); --mdc-icon-size: 30px; }
+.info-band b { display: block; margin-bottom: 4px; }
+.apply-hero { grid-column: span 2; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--bcp-surface-strong); border: 1px solid var(--bcp-line);
+  border-radius: 8px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.32); z-index: 10; }
+@media (max-width: 1220px) {
+  .hero { grid-template-columns: 116px minmax(0, 1fr); }
+  .hero-side { display: none; }
+  .cols-4, .tuning-grid, .season-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
   .app { grid-template-columns: 1fr; }
-  .sidebar { border-right: 0; border-bottom: 1px solid var(--bcp-line); }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--bcp-line); padding: 16px 14px; }
   .nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .side-foot { display: none; }
   .main { padding: 18px 14px 26px; }
   .head { display: block; }
+  .head h1 { font-size: 24px; }
   .chips { justify-content: flex-start; margin-top: 12px; }
-  .cols-2, .cols-3, .cols-4, .tuning-grid { grid-template-columns: 1fr; }
-  .kv { grid-template-columns: 1fr; gap: 3px; }
-  .field-row { grid-template-columns: 1fr; }
+  .hero { grid-template-columns: 1fr; padding: 24px 20px; min-height: 0; }
+  .hero-icon { width: 82px; height: 82px; }
+  .hero h2 { font-size: 24px; }
+  .cols-2, .cols-3, .cols-4, .tuning-grid, .season-grid { grid-template-columns: 1fr; }
+  .room-head { grid-template-columns: 52px 1fr; }
+  .apply-hero { grid-column: auto; }
+  .target { grid-column: 2; font-size: 24px; }
+  .kv, .field-row, .season-values label, .info-band { grid-template-columns: 1fr; gap: 6px; }
 }
 `;
 
@@ -402,29 +607,218 @@ function zonePlan(hass, zone, app) {
   };
 }
 
+function displayValue(value, missing = "unbekannt") {
+  const text = asText(value, missing);
+  if (text === "missing" || text === "unknown" || text === "unavailable") return missing;
+  return text;
+}
+
+function numberLike(value) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function tempText(value, missing = "unbekannt") {
+  const number = numberLike(value);
+  if (number === null) return displayValue(value, missing);
+  return `${number.toFixed(1)} °C`;
+}
+
+function modeLabel(value) {
+  const raw = String(value ?? "missing").toLowerCase();
+  const map = {
+    off: "Aus",
+    aus: "Aus",
+    spar: "Spar",
+    comfort: "Komfort",
+    komfort: "Komfort",
+    boost: "Boost",
+    ground: "Grundwärme",
+    ground_heat: "Grundwärme",
+    grundwaerme: "Grundwärme",
+    grundwärme: "Grundwärme",
+    protection: "Schutz",
+  };
+  return map[raw] || displayValue(value);
+}
+
+function zoneIcon(zone) {
+  return {
+    living_room: "mdi:sofa-outline",
+    kitchen: "mdi:silverware-fork-knife",
+    bathroom: "mdi:bathtub-outline",
+  }[zone] || "mdi:home-thermometer-outline";
+}
+
+function zoneTone(zone) {
+  return {
+    living_room: "purple",
+    kitchen: "green",
+    bathroom: "blue",
+  }[zone] || "blue";
+}
+
+function compactReason(reason, zone = "") {
+  const raw = String(reason ?? "").toLowerCase();
+  if (!raw || raw === "missing" || raw === "none" || raw === "unavailable") return "Keine besondere Einschränkung erkannt.";
+  if (raw.includes("window") || raw.includes("fenster")) return "Ein Fenster begrenzt die Heizleistung.";
+  if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv.";
+  if (raw.includes("spar")) return "Sparmodus ist aktiv.";
+  if (raw.includes("ground") || raw.includes("grund")) return "Grundwärme schützt Komfort und Substanz.";
+  if (raw.includes("comfort") || raw.includes("komfort")) return "Komfortmodus ist erlaubt.";
+  if (raw.includes("boost")) return "Boost ist gerade möglich oder angefragt.";
+  if (raw.includes("cooldown")) return "Cooldown verhindert zu häufiges Anwenden.";
+  if (raw.includes("startup")) return "Start-Ruhezeit schützt vor Kurzschluss.";
+  if (raw.includes("humidity") || raw.includes("feuchte") || raw.includes("dew")) return "Feuchtewerte bestimmen die Bad-Logik.";
+  if (raw.includes("fan") || raw.includes("lüfter") || raw.includes("luefter")) return "Der Badlüfter wird koordiniert.";
+  return `${zone ? `${ZONES[zone]?.label || zone}: ` : ""}${displayValue(reason)}`;
+}
+
+function primaryReason(plan, zone = "") {
+  const blocked = Array.isArray(plan.blocked_by) && plan.blocked_by.length ? plan.blocked_by[0] : null;
+  return plan.reason || plan.apply_block_reason || plan.apply_reason || blocked || "none";
+}
+
+function weatherLabel(hass, app) {
+  const br = effectiveBreakdown(hass, app);
+  const inputs = effectiveInputs(hass, app);
+  const real = numberLike(inputs.real_temperature ?? br.real_temperature ?? stateText(hass, ENTITIES.effectiveTemp));
+  if (real === null) return "unbekannt";
+  if (real < 5) return "kalt";
+  if (real < 14) return "kühl";
+  if (real < 22) return "mild";
+  return "warm";
+}
+
+function modeClass(mode) {
+  const raw = String(mode ?? "").toLowerCase();
+  if (raw.includes("spar")) return "green";
+  if (raw.includes("aus") || raw.includes("off")) return "purple";
+  if (raw.includes("grund") || raw.includes("ground")) return "blue";
+  if (raw.includes("comfort") || raw.includes("komfort")) return "pink";
+  return "blue";
+}
+
+function zoneChipList(plan, zone) {
+  const chips = [
+    `<span class="pill ${modeClass(plan.profile)}">${esc(modeLabel(plan.profile))}</span>`,
+  ];
+  if (plan.apply_blocked === "on" || plan.apply_block_reason || String(primaryReason(plan)).toLowerCase().includes("window")) {
+    chips.push(`<span class="pill purple">${esc(compactReason(primaryReason(plan, zone)))}</span>`);
+  }
+  if (plan.is_boost_active) chips.push(`<span class="pill pink">Boost aktiv</span>`);
+  if (String(primaryReason(plan)).toLowerCase().includes("summer")) chips.push(`<span class="pill green">Sommerregel</span>`);
+  return chips.slice(0, 3).join("");
+}
+
+function roomFact(label, value) {
+  return `<div class="fact-row"><span>${esc(label)}</span><b>${esc(displayValue(value))}</b></div>`;
+}
+
+function consequenceItems(hass, app) {
+  const bath = bathroomDebug(hass, app);
+  const fan = bath.fan_plan || {};
+  return Object.entries(ZONES).map(([zone, meta]) => {
+    const plan = zonePlan(hass, zone, app);
+    return `<div class="reason">
+      ${icon(zoneIcon(zone))}
+      <div><small>${esc(meta.label)}</small><b>${esc(modeLabel(plan.profile))} auf ${esc(tempText(plan.target_temperature))}</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
+    </div>`;
+  }).join("") + `<div class="reason">
+    ${icon("mdi:fan")}
+    <div><small>Badlüfter</small><b>${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</b><br><span class="muted">${esc(compactReason(fan.fan_reason ?? fan.reason ?? fan.apply_block_reason ?? "Koordiniert mit Bad-Feuchte und Heizung."))}</span></div>
+  </div>`;
+}
+
+function overviewSentence(hass, app) {
+  const living = zonePlan(hass, "living_room", app);
+  const kitchen = zonePlan(hass, "kitchen", app);
+  const bathroom = zonePlan(hass, "bathroom", app);
+  const weather = weatherLabel(hass, app);
+  const livingReason = String(primaryReason(living)).toLowerCase();
+  const parts = [`Aktuell <span class="accent">${esc(weather)}</span> draußen`];
+  if (livingReason.includes("window") || livingReason.includes("fenster") || living.apply_blocked === "on") {
+    parts.push(`Fensterstatus <span class="pink">begrenzt</span> Wohnzimmer`);
+  } else {
+    parts.push(`Wohnzimmer bleibt in <span class="purple">${esc(modeLabel(living.profile))}</span>`);
+  }
+  parts.push(`Küche bleibt im <span class="purple">${esc(modeLabel(kitchen.profile))}</span>`);
+  parts.push(`Bad auf <span class="accent">${esc(modeLabel(bathroom.profile))}</span>`);
+  return `${parts.slice(0, 3).join(", ")}. ${parts[3]}.`;
+}
+
+function policyConsequence(hass, app) {
+  const apply = stateText(hass, ENTITIES.applyActive);
+  const ready = stateText(hass, ENTITIES.applyReady);
+  const status = stateText(hass, ENTITIES.applyStatus);
+  if (apply === "on") return `Auto-Apply ist aktiv. Die Policy kann Änderungen anwenden, sobald Ready ${ready} ist.`;
+  if (status !== "missing") return `Auto-Apply ist aus. Änderungen bleiben als Plan sichtbar; manuelles Anwenden oder Dry Run ist möglich.`;
+  return "Die Policy zeigt aktuell die geplante Wärmeabgabe, ohne Backend-Regeln umzubauen.";
+}
+
+function miniStat(iconName, value, label) {
+  return `<div class="card mini-stat">${icon(iconName)}<div><b>${esc(displayValue(value))}</b><span>${esc(label)}</span></div></div>`;
+}
+
 function renderOverview(hass, app) {
   const living = zonePlan(hass, "living_room", app);
   const kitchen = zonePlan(hass, "kitchen", app);
   const bathroom = zonePlan(hass, "bathroom", app);
-  const bath = bathroomDebug(hass, app);
-  const fan = bath.fan_plan || {};
   const loaded = Object.keys(hass?.states || {}).some((id) =>
     id.includes("climate_policy") || id.includes("climate_effective") || id.includes("climate_system_ready"));
+  const br = effectiveBreakdown(hass, app);
+  const inputs = effectiveInputs(hass, app);
   return `
-    <div class="grid cols-4">
-      ${metric("Integration geladen", loaded ? "ja" : "nein")}
-      ${metric("System Ready", stateText(hass, ENTITIES.systemReady), ENTITIES.systemReady)}
-      ${metric("Apply Active", stateText(hass, ENTITIES.applyActive), ENTITIES.applyActive)}
-      ${metric("Effective Outdoor Temp", stateText(hass, ENTITIES.effectiveTemp), ENTITIES.effectiveTemp)}
-      ${metric("Wohnzimmer Mode", living.profile, ZONES.living_room.mode)}
-      ${metric("Wohnzimmer Zieltemperatur", living.target_temperature, ZONES.living_room.target)}
-      ${metric("Küche Mode", kitchen.profile, ZONES.kitchen.mode)}
-      ${metric("Küche Zieltemperatur", kitchen.target_temperature, ZONES.kitchen.target)}
-      ${metric("Bad Mode", bathroom.profile, ZONES.bathroom.mode)}
-      ${metric("Bad Zieltemperatur", bathroom.target_temperature, ZONES.bathroom.target)}
-      ${metric("Bad Lüfter Mode", fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode), ENTITIES.bathroomFanMode)}
-      ${metric("Globaler Apply Status", stateText(hass, ENTITIES.applyStatus), ENTITIES.applyStatus)}
-      ${metric("Letzter Apply", stateText(hass, ENTITIES.lastApply), ENTITIES.lastApply)}
+    <section class="hero">
+      <div class="hero-icon">${icon("mdi:emoticon-outline")}</div>
+      <div>
+        <h2>${overviewSentence(hass, app)}</h2>
+        <p>${esc(policyConsequence(hass, app))}</p>
+        <div class="chip-row">
+          ${statusChip(stateText(hass, ENTITIES.systemReady), stateText(hass, ENTITIES.systemReady) === "on" ? "System bereit" : "System prüfen")}
+          ${statusChip(stateText(hass, ENTITIES.applyActive), stateText(hass, ENTITIES.applyActive) === "on" ? "Apply: An" : "Apply: Aus")}
+          ${statusChip(loaded ? "ok" : "missing", loaded ? "Integration geladen" : "Integration fehlt")}
+        </div>
+      </div>
+      <div class="hero-side"><div class="cloud-temp">${esc(tempText(stateText(hass, ENTITIES.effectiveTemp)))}</div></div>
+    </section>
+
+    <div class="section grid cols-4">
+      ${miniStat("mdi:home-check-outline", "3", "Räume im Plan")}
+      ${miniStat("mdi:thermometer-lines", tempText(stateText(hass, ENTITIES.effectiveTemp)), "Effektive Außentemperatur")}
+      ${miniStat("mdi:white-balance-sunny", displayValue(inputs.weather_condition ?? br.weather_condition ?? "Wetter"), "Außenbedingung")}
+      ${miniStat("mdi:play-circle-outline", displayValue(stateText(hass, ENTITIES.lastApply), "Nie"), "Letzter Apply")}
+    </div>
+
+    <div class="section grid cols-4">
+      <div class="card">
+        <h2>${icon("mdi:account-clock-outline")}Kontext</h2>
+        ${kv("Anwesenheit", contextSnapshot(hass, app).presence_household?.value ?? "nicht geladen")}
+        ${kv("Tagesstatus", contextSnapshot(hass, app).day_context?.value ?? "nicht geladen")}
+        ${kv("Bio-Status", contextSnapshot(hass, app).bio_state?.value ?? "nicht geladen")}
+      </div>
+      <div class="card">
+        <h2>${icon("mdi:weather-partly-cloudy")}Außenbedingungen</h2>
+        ${kv("Reale Temperatur", tempText(inputs.real_temperature ?? br.real_temperature))}
+        ${kv("Gefühlt", tempText(stateText(hass, ENTITIES.outdoorFeelsLike)))}
+        ${kv("Forecast in 3h", tempText(stateText(hass, ENTITIES.forecastTemp3h)))}
+      </div>
+      <div class="card">
+        <h2>${icon("mdi:thermometer-lines")}Teff-Breakdown</h2>
+        ${kv("Licht (Lux)", inputs.outdoor_lux ?? "nicht geladen")}
+        ${kv("Wetter-Offset", tempText(br.weather_offset ?? "missing"))}
+        ${kv("Forecast-Offset", tempText(br.forecast_offset ?? "missing"))}
+        ${kv("Finale Teff", tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
+      </div>
+      <div class="card">
+        <h2>${icon("mdi:shield-check-outline")}Konsequenzen</h2>
+        ${consequenceItems(hass, app)}
+      </div>
+    </div>
+
+    <div class="section info-band">
+      ${icon("mdi:lightbulb-outline")}
+      <div><b>Gut zu wissen</b><span class="muted">Die effektive Außentemperatur kombiniert Wetter, Lichtverhältnisse und Prognose, um die Heizstrategie vorausschauend anzupassen.</span></div>
     </div>
   `;
 }
@@ -456,86 +850,72 @@ function renderContext(hass, app) {
       <td>${esc(asText(item.fallback_used, "false"))}</td>
     </tr>`;
   }).join("");
-  return `<div class="card"><h2>${icon("mdi:account-clock-outline")}Context Snapshot</h2><div class="table-wrap">
+  return `<div class="table-wrap">
     <table><thead><tr><th>Wert</th><th>value</th><th>source_entity_id</th><th>quality</th><th>fallback_used</th></tr></thead><tbody>${rows}</tbody></table>
-  </div></div>`;
+  </div>`;
 }
 
 function renderZones(hass, app) {
   const zoneCards = Object.entries(ZONES).map(([zone, meta]) => {
     const plan = zonePlan(hass, zone, app);
-    return `<div class="card">
-      <h2>${icon("mdi:home-thermometer-outline")}${esc(meta.label)}</h2>
-      ${kv("climate mode", plan.profile)}
-      ${kv("target temperature", plan.target_temperature)}
-      ${kv("plan hash", plan.plan_hash, "mono")}
-      ${kv("pending plan hash", plan.pending_plan_hash, "mono")}
-      ${kv("last applied plan hash", plan.last_applied_plan_hash, "mono")}
-      ${kv("apply blocked", plan.apply_blocked)}
-      ${kv("policy reason", plan.reason ?? "missing")}
-      ${kv("apply blocker", plan.apply_block_reason ?? plan.apply_reason)}
-      ${kv("blocked_by", plan.blocked_by || [])}
-      ${kv("decision_path", plan.decision_path || [])}
-      ${kv("profile", plan.profile)}
-      ${kv("raw target temperature", plan.raw_target_temperature)}
-      ${kv("final target temperature", plan.final_target_temperature ?? plan.target_temperature)}
-      ${kv("boost status", plan.is_boost_active ? "active" : "inactive")}
+    const reason = compactReason(primaryReason(plan, zone), zone);
+    const bath = zone === "bathroom" ? bathroomDebug(hass, app) : {};
+    const fan = bath.fan_plan || {};
+    const diag = fan.diagnostics || {};
+    return `<div class="card room-card">
+      <div class="room-head">
+        <div class="room-icon">${icon(zoneIcon(zone))}</div>
+        <div>
+          <h3>${esc(meta.label)}</h3>
+          <div class="muted">Modus</div>
+          <div class="mode">${esc(modeLabel(plan.profile))}</div>
+        </div>
+        <div class="target">${esc(tempText(plan.target_temperature))}</div>
+      </div>
+      <div class="reason">
+        ${icon(zone === "bathroom" ? "mdi:water-outline" : "mdi:leaf-outline")}
+        <div><small>Wichtigster Grund</small><b>${esc(reason)}</b></div>
+      </div>
+      <div class="chip-row">${zoneChipList(plan, zone)}${zone === "bathroom" ? `<span class="pill blue">Lüfter: ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</span>` : ""}</div>
+      <div class="room-facts">
+        ${roomFact("Aktuelle Temperatur", tempText(plan.current_temperature ?? plan.room_temperature ?? attr(hass, meta.target, "current_temperature", "unbekannt")))}
+        ${roomFact("Heizung", plan.apply_blocked === "on" ? "begrenzt" : modeLabel(plan.profile))}
+        ${roomFact("Letztes Update", displayValue(plan.updated_at ?? stateObj(hass, meta.mode)?.last_changed ?? "unbekannt"))}
+      </div>
+      <details class="expert section">
+        <summary>Experten-Details</summary>
+        ${kv("Plan Hash", plan.plan_hash, "mono")}
+        ${kv("Pending Hash", plan.pending_plan_hash, "mono")}
+        ${kv("Letzter Apply Hash", plan.last_applied_plan_hash, "mono")}
+        ${kv("Policy Reason", plan.reason ?? "missing")}
+        ${kv("Apply Blocker", plan.apply_block_reason ?? plan.apply_reason)}
+        ${kv("Decision Path", plan.decision_path || [])}
+        ${zone === "bathroom" ? `${kv("Lüfter Grund", fan.fan_reason ?? fan.reason ?? "missing")}${kv("AH Delta", diag.ah_delta ?? "missing")}${kv("Taupunkt", diag.dewpoint ?? "missing")}` : ""}
+      </details>
     </div>`;
   }).join("");
-  return `<div class="grid cols-2">${zoneCards}</div>`;
+  return `<div class="card">
+    <div class="room-head">
+      <div class="hero-icon">${icon("mdi:check-circle-outline")}</div>
+      <div>
+        <h2>Aktive Raumentscheidungen</h2>
+        <p class="muted">Die Policy fasst Wohnzimmer, Küche und Bad zusammen. Bad ist als Raum integriert; Lüfter- und Feuchtedetails liegen im Expertenbereich.</p>
+      </div>
+      <div class="chip-row">
+        <span class="pill blue">3 Räume aktiv</span>
+        <span class="pill purple">Teff ${esc(tempText(stateText(hass, ENTITIES.effectiveTemp)))}</span>
+      </div>
+    </div>
+  </div>
+  <div class="section grid cols-3">${zoneCards}</div>
+  <div class="section info-band">
+    ${icon("mdi:lightbulb-outline")}
+    <div><b>Tipp zur Optimierung</b><span class="muted">${esc(compactReason(primaryReason(livingOrFirstPlan(hass, app), "living_room")))}</span></div>
+  </div>`;
 }
 
-function renderBathroom(hass, app) {
-  const bath = bathroomDebug(hass, app);
-  const climate = bath.climate_plan || zonePlan(hass, "bathroom", app);
-  const fan = bath.fan_plan || {};
-  const diag = fan.diagnostics || {};
-  const tuning = bath.tuning || {};
-  return `<div class="grid cols-4">
-    ${metric("Bad Climate Mode", climate.profile ?? "missing", ZONES.bathroom.mode)}
-    ${metric("Bad Zieltemperatur", climate.target_temperature ?? "missing", ZONES.bathroom.target)}
-    ${metric("Bad Lüfter Mode", fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode), ENTITIES.bathroomFanMode)}
-    ${metric("Bad Lüfter Zielzustand", fan.target_switch_state ?? "missing")}
-    ${metric("Taupunkt Bad", diag.dewpoint ?? "missing")}
-    ${metric("AH Bad", diag.absolute_humidity_bathroom ?? "missing")}
-    ${metric("AH Wohnzimmer", diag.absolute_humidity_living ?? "missing")}
-    ${metric("AH Delta", diag.ah_delta ?? "missing")}
-  </div>
-  <div class="section grid cols-2">
-    <div class="card">
-      <h2>${icon("mdi:radiator")}Bad Heizung</h2>
-      ${kv("policy reason", climate.reason ?? "missing")}
-      ${kv("apply blocker", climate.apply_block_reason ?? "missing")}
-      ${kv("blocked_by", climate.blocked_by || [])}
-      ${kv("effective outdoor temperature", climate.effective_outdoor_temperature ?? "missing")}
-      ${kv("plan hash", climate.plan_hash ?? "missing", "mono")}
-      ${kv("policy config hash", climate.policy_config_hash ?? "missing", "mono")}
-      ${kv("decision path", climate.decision_path || [])}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:fan")}Bad Lüfter</h2>
-      ${kv("fan reason", fan.fan_reason ?? fan.reason ?? "missing")}
-      ${kv("fan blocker", fan.fan_blocker ?? fan.apply_block_reason ?? "missing")}
-      ${kv("apply blocker", fan.apply_block_reason ?? "missing")}
-      ${kv("heating fan coordination", diag.heating_fan_coordination_state ?? "missing")}
-      ${kv("max durations", diag.max_duration_minutes ?? {})}
-      ${kv("last fan active at", diag.last_fan_active_at ?? "not_available")}
-      ${kv("plan hash", fan.plan_hash ?? stateText(hass, ENTITIES.bathroomFanPlanHash), "mono")}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:water-percent")}Feuchte-Diagnose</h2>
-      ${kv("bathroom humidity", diag.bathroom_humidity ?? "see input sensor")}
-      ${kv("dewpoint", diag.dewpoint ?? "missing")}
-      ${kv("absolute_humidity_bathroom", diag.absolute_humidity_bathroom ?? "missing")}
-      ${kv("absolute_humidity_living", diag.absolute_humidity_living ?? "missing")}
-      ${kv("ah_delta", diag.ah_delta ?? "missing")}
-      ${kv("input quality", diag.input_quality ?? "missing")}
-    </div>
-    <div class="card">
-      <h2>${icon("mdi:tune")}Aktive Bad-Parameter</h2>
-      ${Object.entries(tuning).filter(([k]) => k !== "sources").map(([k, v]) => kvSource(k, v, tuning.sources?.[`bath_${k}`] || tuning.sources?.[k])).join("") || kv("tuning", "missing")}
-    </div>
-  </div>`;
+function livingOrFirstPlan(hass, app) {
+  return zonePlan(hass, "living_room", app) || Object.keys(ZONES).map((zone) => zonePlan(hass, zone, app))[0] || {};
 }
 
 function sourcePill(source) {
@@ -587,22 +967,28 @@ function renderThresholds(hass, app) {
   const resetAvailable = serviceAvailable(hass, "reset_options");
   const dirtyKeys = app?._dirtyTuningKeys(data) || [];
   const error = app?._tuningError || "";
-  const matrixRows = THRESHOLD_BANDS.map(([band, label, months]) => {
+  const activeBand = String(current.active_month_band ?? current.band ?? "").toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  const seasonCards = THRESHOLD_BANDS.map(([band, label, months]) => {
     const bandData = data.threshold_bands?.[band] || {};
     const keys = bandData.keys || {};
     const comfortDisabled = tuningDraftValue(app, data, keys.comfort_disabled) === true || tuningDraftValue(app, data, keys.comfort_disabled) === "true";
     const boostDisabled = tuningDraftValue(app, data, keys.boost_disabled) === true || tuningDraftValue(app, data, keys.boost_disabled) === "true";
     const rowDirty = Object.values(keys).some((key) => isDirty(app, data, key));
-    return `<tr class="${rowDirty ? "dirty" : ""}">
-      <td><b>${esc(label)}</b><br><span class="mono muted">${esc(band)}</span></td>
-      <td>${esc(months)}</td>
-      <td>${numberInput(app, data, keys.off_threshold)}<br>${sourcePill(data.sources?.[keys.off_threshold])}</td>
-      <td>${numberInput(app, data, keys.comfort_threshold, comfortDisabled)}<br>${sourcePill(data.sources?.[keys.comfort_threshold])}</td>
-      <td>${numberInput(app, data, keys.boost_threshold, boostDisabled)}<br>${sourcePill(data.sources?.[keys.boost_threshold])}</td>
-      <td>${boolInput(app, data, keys.comfort_disabled)}<br>${sourcePill(data.sources?.[keys.comfort_disabled])}</td>
-      <td>${boolInput(app, data, keys.boost_disabled)}<br>${sourcePill(data.sources?.[keys.boost_disabled])}</td>
-      <td><button class="action" data-action="tuning-reset-band-${esc(band)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Zurücksetzen</span></button></td>
-    </tr>`;
+    const active = activeBand === band;
+    return `<div class="season-card ${active ? "active" : ""} ${rowDirty ? "dirty" : ""}">
+      <div class="toolbar">
+        <div><h3>${icon(active ? "mdi:check-circle-outline" : "mdi:calendar-range")} ${esc(label)}</h3><small>${esc(months)}</small></div>
+        ${active ? `<span class="pill purple">Aktiv</span>` : ""}
+      </div>
+      <div class="season-values">
+        <label><span>Aus ab</span>${numberInput(app, data, keys.off_threshold)}</label>
+        <label><span>Komfort bis</span>${numberInput(app, data, keys.comfort_threshold, comfortDisabled)}</label>
+        <label><span>Boost bis</span>${numberInput(app, data, keys.boost_threshold, boostDisabled)}</label>
+        <label><span>Komfort aus</span>${boolInput(app, data, keys.comfort_disabled)}</label>
+        <label><span>Boost aus</span>${boolInput(app, data, keys.boost_disabled)}</label>
+      </div>
+      <button class="action" data-action="tuning-reset-band-${esc(band)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Band zurücksetzen</span></button>
+    </div>`;
   }).join("");
   const cards = TUNING_GROUPS.map(([section, title, iconName, fields]) => `<div class="card">
     <div class="toolbar">
@@ -612,31 +998,35 @@ function renderThresholds(hass, app) {
     ${fieldRows(app, data, fields)}
   </div>`).join("");
   return `${error ? `<div class="error-box">${esc(error)}</div>` : ""}
-  <div class="toolbar">
-    <div>
-      <b>Klima-Tuning</b><br>
-      <span class="muted">Gespeichert wird in den Integrationsoptionen. Ungespeicherte Änderungen sind markiert.</span>
+  <div class="card">
+    <div class="toolbar">
+      <div>
+        <h2>${icon("mdi:tune-vertical-variant")}Heizstrategie je Jahreszeit</h2>
+        <span class="muted">Ruhiger Arbeitsbereich für Setpoints, saisonale Schwellen und Expertenparameter. Ungespeicherte Änderungen werden markiert.</span>
+      </div>
+      <div class="actions">
+        ${actionButton("tuning-reset-all", "Alles zurücksetzen", "mdi:restore", false, resetAvailable)}
+        <button class="action primary" data-action="tuning-save" ${updateAvailable && dirtyKeys.length > 0 ? "" : "disabled"}>${icon("mdi:content-save-outline")}<span>${esc(dirtyKeys.length ? `Speichern (${dirtyKeys.length})` : "Speichern")}</span></button>
+      </div>
     </div>
-    <div class="actions">
-      ${actionButton("tuning-reset-all", "Alles zurücksetzen", "mdi:restore", false, resetAvailable)}
-      <button class="action primary" data-action="tuning-save" ${updateAvailable && dirtyKeys.length > 0 ? "" : "disabled"}>${icon("mdi:content-save-outline")}<span>${esc(dirtyKeys.length ? `Speichern (${dirtyKeys.length})` : "Speichern")}</span></button>
+    <div class="grid cols-4">
+      ${miniStat("mdi:calendar-check-outline", current.active_month_band ?? "unbekannt", "Aktives Saisonband")}
+      ${miniStat("mdi:sofa-outline", tempText(data.values?.setpoint_komfort ?? "missing"), "Komfort-Setpoint")}
+      ${miniStat("mdi:leaf-outline", tempText(data.values?.setpoint_spar ?? "missing"), "Spar-Setpoint")}
+      ${miniStat("mdi:bathtub-outline", tempText(data.values?.bath_setpoint_ground ?? "missing"), "Bad Grundwärme")}
     </div>
-  </div>
-  <div class="grid cols-4">
-    ${metric("Aktueller Monat", current.month ?? "missing")}
-    ${metric("Aktives Monatsband", current.active_month_band ?? "missing")}
-    ${metric("Komfort deaktiviert", current.comfort_structurally_disabled ?? "missing")}
-    ${metric("Boost deaktiviert", current.boost_structurally_disabled ?? "missing")}
   </div>
   <div class="section card">
-    <h2>${icon("mdi:calendar-range")}Monats-/Saison-Matrix</h2>
-    <div class="table-wrap">
-      <table class="matrix"><thead><tr><th>Band</th><th>Monate</th><th>off_threshold</th><th>comfort_threshold</th><th>boost_threshold</th><th>comfort_disabled</th><th>boost_disabled</th><th>Reset</th></tr></thead><tbody>
-        ${matrixRows}
-      </tbody></table>
-    </div>
+    <h2>${icon("mdi:calendar-range")}Saison-Übersicht</h2>
+    <div class="season-grid">${seasonCards}</div>
   </div>
-  <div class="section tuning-grid">${cards}</div>`;
+  <div class="section tuning-grid">${cards}</div>
+  <div class="section info-band">
+    ${icon("mdi:information-outline")}
+    <div class="actions">
+      <span class="muted">Änderungen werden lokal im Integrationsoptionen-Service gespeichert; die fachliche Policy-Logik bleibt unverändert.</span>
+    </div>
+  </div>`;
 }
 
 function renderEffective(hass, app) {
@@ -695,47 +1085,82 @@ function actionButton(id, label, iconName, primary, available) {
   </button>`;
 }
 
+function plannedActionCard(hass, app, zone) {
+  const meta = ZONES[zone];
+  const plan = zonePlan(hass, zone, app);
+  return `<div class="card">
+    <h2>${icon(zoneIcon(zone))}${esc(meta.label)}</h2>
+    ${kv("Geplante Aktion", `${modeLabel(plan.profile)} auf ${tempText(plan.target_temperature)}`)}
+    ${kv("Grund", compactReason(primaryReason(plan, zone), zone))}
+    <div class="chip-row">
+      <span class="pill ${modeClass(plan.profile)}">Modus: ${esc(modeLabel(plan.profile))}</span>
+      ${plan.apply_blocked === "on" ? `<span class="pill purple">Begrenzt</span>` : ""}
+    </div>
+  </div>`;
+}
+
 function renderApply(hass, app) {
   const applyNow = serviceAvailable(hass, "apply_now");
   const dryRun = serviceAvailable(hass, "dry_run");
   const payload = debugPayload(hass, app);
   const lastApply = endpointDebug(app).last_apply_result || payload.last_apply_result || null;
-  return `<div class="grid cols-3">
-    ${metric("Auto-Apply Toggle Zustand", stateText(hass, ENTITIES.applyActive), ENTITIES.applyActive)}
-    ${metric("Auto-Apply Ready", stateText(hass, ENTITIES.applyReady), ENTITIES.applyReady)}
-    ${metric("Manual Apply möglich", payload.manual_apply_possible ?? attr(hass, ENTITIES.applyStatus, "manual_apply_possible", "missing"))}
-    ${metric("Apply Status", stateText(hass, ENTITIES.applyStatus), ENTITIES.applyStatus)}
-    ${metric("Last Apply", stateText(hass, ENTITIES.lastApply), ENTITIES.lastApply)}
-    ${metric("Dry Run verfügbar", dryRun ? "ja" : "missing service/button")}
-  </div>
-  <div class="section card">
-    <h2>${icon("mdi:gesture-tap-button")}Actions</h2>
-    <div class="actions">
-      ${actionButton("dry-run-global", "Global Dry Run", "mdi:flask-outline", false, dryRun)}
-      ${actionButton("apply-global", "Global Manual Apply", "mdi:play-outline", true, applyNow)}
-      ${actionButton("apply-living_room", "Wohnzimmer Manual Apply", "mdi:sofa-outline", false, applyNow)}
-      ${actionButton("apply-kitchen", "Küche Manual Apply", "mdi:silverware-fork-knife", false, applyNow)}
-      ${actionButton("dry-run-bathroom", "Bad Dry Run", "mdi:flask-outline", false, dryRun)}
-      ${actionButton("apply-bathroom", "Bad Manual Apply", "mdi:shower-head", false, applyNow)}
-      ${actionButton("dry-run-bathroom_fan", "Bad Lüfter Dry Run", "mdi:fan-alert", false, dryRun)}
-      ${actionButton("apply-bathroom_fan", "Bad Lüfter Apply", "mdi:fan", false, applyNow)}
+  const applyActive = stateText(hass, ENTITIES.applyActive);
+  return `<div class="grid cols-4">
+    <div class="card apply-hero">
+      <div class="room-head">
+        <div class="hero-icon">${icon(applyActive === "on" ? "mdi:robot-outline" : "mdi:robot-off-outline")}</div>
+        <div>
+          <h2>Automatik derzeit ${applyActive === "on" ? "an" : "aus"}</h2>
+          <p class="muted">${esc(applyActive === "on" ? "Die Policy darf passende Heizänderungen automatisch anwenden." : "Die Automatik ist deaktiviert. Du kannst Einstellungen manuell anwenden oder einen Dry Run durchführen.")}</p>
+          ${statusChip(payload.manual_apply_possible ?? attr(hass, ENTITIES.applyStatus, "manual_apply_possible", "missing"), "Manuelles Anwenden möglich")}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:calendar-clock")}Letzter Apply</h2>
+      <div class="target">${esc(displayValue(stateText(hass, ENTITIES.lastApply), "Nie"))}</div>
+      <p class="muted">Bisheriger Apply-Status der Integration.</p>
+    </div>
+    <div class="card">
+      <h2>${icon("mdi:shield-check-outline")}Sicherheit</h2>
+      <div class="target">${esc(stateText(hass, ENTITIES.applyReady) === "on" ? "Bereit" : "Geschützt")}</div>
+      <p class="muted">Cooldown und Sperren verhindern zu häufige Änderungen.</p>
     </div>
   </div>
   <div class="section card">
-    <h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>
-    ${renderApplySummary(lastApply)}
-    ${lastApply ? jsonDetails("Details als JSON anzeigen", lastApply) : ""}
+    <h2>${icon("mdi:gesture-tap-button")}Schnellaktionen</h2>
+    <div class="actions">
+      ${actionButton("dry-run-global", "Global Dry Run", "mdi:flask-outline", false, dryRun)}
+      ${actionButton("apply-global", "Global anwenden", "mdi:play-outline", true, applyNow)}
+      ${actionButton("apply-living_room", "Wohnzimmer anwenden", "mdi:sofa-outline", false, applyNow)}
+      ${actionButton("apply-kitchen", "Küche anwenden", "mdi:silverware-fork-knife", false, applyNow)}
+      ${actionButton("apply-bathroom", "Bad anwenden", "mdi:bathtub-outline", false, applyNow)}
+      ${actionButton("apply-bathroom_fan", "Badlüfter anwenden", "mdi:fan", false, applyNow)}
+    </div>
   </div>
   <div class="section card">
-    <h2>${icon("mdi:format-list-checks")}Geplante Dry-Run-Service-Calls</h2>
-    ${lastApply?.dry_run ? renderApplySummary(lastApply) : `<div class="notice">Kein Dry Run aktiv oder noch nicht ausgefuehrt.</div>`}
-    ${lastApply?.dry_run ? jsonDetails("Dry-Run-Service-Calls als JSON anzeigen", lastApply.actions.map((a) => ({
-      zone: a.zone,
-      reason: a.reason,
-      target_entity_id: a.target_entity_id,
-      service_calls: a.service_calls,
-      details: a.details,
-    }))) : ""}
+    <h2>${icon("mdi:clipboard-check-outline")}Was würde jetzt passieren?</h2>
+    <p class="muted">Vorschau auf Basis der aktuellen Bedingungen und Pläne.</p>
+    <div class="grid cols-3">
+      ${plannedActionCard(hass, app, "living_room")}
+      ${plannedActionCard(hass, app, "kitchen")}
+      ${plannedActionCard(hass, app, "bathroom")}
+    </div>
+  </div>
+  <div class="section card">
+    <h2>${icon("mdi:console-line")}Expertenbereich: Apply-Details</h2>
+    <details class="expert">
+      <summary>Letzten Apply-Versuch und Dry-Run-Service-Calls anzeigen</summary>
+      ${renderApplySummary(lastApply)}
+      ${lastApply ? jsonDetails("Details als JSON anzeigen", lastApply) : ""}
+      ${lastApply?.dry_run ? jsonDetails("Dry-Run-Service-Calls als JSON anzeigen", lastApply.actions.map((a) => ({
+        zone: a.zone,
+        reason: a.reason,
+        target_entity_id: a.target_entity_id,
+        service_calls: a.service_calls,
+        details: a.details,
+      }))) : `<div class="notice">Kein Dry Run aktiv oder noch nicht ausgeführt.</div>`}
+    </details>
   </div>`;
 }
 
@@ -752,11 +1177,11 @@ function renderInputs(hass, app) {
     <td>${statusChip(item.status || "missing")}</td>
     <td>${esc(item.source || "missing")}</td>
   </tr>`).join("");
-  return `<div class="card"><h2>${icon("mdi:database-search-outline")}Configured Inputs</h2><div class="table-wrap">
+  return `<div class="table-wrap">
     <table><thead><tr><th>Rolle</th><th>Key</th><th>Entity ID</th><th>State</th><th>Status</th><th>Quelle</th></tr></thead><tbody>
       ${rows || `<tr><td colspan="6" class="muted">not exposed yet</td></tr>`}
     </tbody></table>
-  </div></div>`;
+  </div>`;
 }
 
 function renderDebug(hass, app) {
@@ -777,17 +1202,33 @@ function renderDebug(hass, app) {
     || attr(hass, ENTITIES.applyStatus, "reason", null)
     || Object.values(planMap).map((p) => p.apply_block_reason).filter(Boolean).join(", ")
     || "none";
-  return `<div class="grid cols-2">
+  const perf = full.performance || payload.performance || {};
+  return `<div class="grid cols-4">
+    ${miniStat("mdi:refresh", perf.recalculate_count ?? dbg.recalculate_count ?? "unbekannt", "Recalculate Count")}
+    ${miniStat("mdi:lightning-bolt-outline", payload.last_recalculate_reason ?? dbg.last_recalculate_reason ?? skipReason, "Letzter Grund")}
+    ${miniStat("mdi:cloud-check-outline", payload.forecast_cache_status ?? dbg.forecast_cache_status ?? "unbekannt", "Forecast-Cache")}
+    ${miniStat("mdi:publish", payload.publish_count_24h ?? dbg.publish_count_24h ?? "unbekannt", "Publish 24h")}
+  </div>
+  <div class="section grid cols-2">
     <div class="card"><h2>${icon("mdi:speedometer")}Performance</h2>
-      ${Object.entries(full.performance || payload.performance || {}).map(([k, v]) => kv(k, v, "mono")).join("") || kv("performance", "not exposed yet")}
-      ${kv("debug_endpoint_last_fetch", app?._debugLastFetch ? new Date(app._debugLastFetch).toISOString() : "never", "mono")}
+      ${Object.entries(perf).map(([k, v]) => kv(k, v, "mono")).join("") || kv("Performance", "not exposed yet")}
+      ${kv("Debug Endpoint", app?._debugLastFetch ? new Date(app._debugLastFetch).toISOString() : "never", "mono")}
     </div>
-    <div class="card"><h2>${icon("mdi:routes")}Letzter Decision Path</h2>${jsonDetails("Decision Path als JSON anzeigen", paths)}</div>
-    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonDetails("Thresholds als JSON anzeigen", thresholds(hass, app))}</div>
-    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Context Snapshot</h2>${jsonDetails("Context als JSON anzeigen", contextSnapshot(hass, app))}</div>
-    <div class="card"><h2>${icon("mdi:file-tree-outline")}Letzter Plan JSON</h2>${jsonDetails("Plaene als JSON anzeigen", planMap)}</div>
-    <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>${renderApplySummary(payload.last_apply_result)}${jsonDetails("Apply-Versuch als JSON anzeigen", payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}</div>
-    <div class="card"><h2>${icon("mdi:block-helper")}Letzter Skip-/Blockgrund</h2>${kv("reason", skipReason)}</div>
+    <div class="card"><h2>${icon("mdi:routes")}Letzter Entscheidungsweg</h2>
+      ${paths.map((item, index) => `<div class="fact-row"><span>${index + 1}. ${esc(item.zone)}</span><b>${esc(compactReason(item.reason || item.apply_block_reason, item.zone))}</b></div>`).join("")}
+      ${jsonDetails("Pfad als JSON anzeigen", paths)}
+    </div>
+    <div class="card"><h2>${icon("mdi:account-clock-outline")}Letzter Kontext-Snapshot</h2>
+      ${renderContext(hass, app)}
+    </div>
+    <div class="card"><h2>${icon("mdi:clipboard-pulse-outline")}Letzter Apply-Versuch</h2>
+      ${renderApplySummary(payload.last_apply_result)}
+      ${jsonDetails("Apply-Versuch als JSON anzeigen", payload.last_apply_result || attr(hass, ENTITIES.applyStatus, "result", null))}
+    </div>
+    <div class="card"><h2>${icon("mdi:database-search-outline")}Konfigurierte Inputs</h2>
+      ${renderInputs(hass, app)}
+    </div>
+    <div class="card"><h2>${icon("mdi:block-helper")}Letzter Skip-/Blockgrund</h2>${kv("Grund", compactReason(skipReason))}${kv("Raw", skipReason, "mono")}</div>
     <div class="card"><h2>${icon("mdi:fingerprint")}Hash-Basis</h2>${jsonDetails("Hash-Basis als JSON anzeigen", Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
       zone: plan.zone,
       profile: plan.profile,
@@ -796,19 +1237,16 @@ function renderDebug(hass, app) {
       effective_outdoor_temperature: plan.effective_outdoor_temperature,
       plan_hash: plan.plan_hash,
     }])))}</div>
+    <div class="card"><h2>${icon("mdi:tune-vertical-variant")}Thresholds</h2>${jsonDetails("Thresholds als JSON anzeigen", thresholds(hass, app))}</div>
     <div class="card"><h2>${icon("mdi:code-json")}Debug Summary</h2>${jsonDetails("Recorder-sichere Attribute anzeigen", dbg)}</div>
   </div>`;
 }
 
 const RENDERERS = {
   overview: renderOverview,
-  context: renderContext,
   zones: renderZones,
-  bathroom: renderBathroom,
   thresholds: renderThresholds,
-  effective: renderEffective,
   apply: renderApply,
-  inputs: renderInputs,
   debug: renderDebug,
 };
 
@@ -891,6 +1329,13 @@ class BcpApp extends HTMLElement {
     const sys = stateText(hass, ENTITIES.systemReady);
     const apply = stateText(hass, ENTITIES.applyActive);
     const effective = stateText(hass, ENTITIES.effectiveTemp);
+    const subtitles = {
+      overview: "Bedingungen, Konsequenzen und Policy-Zustand auf einen Blick",
+      zones: "Übersicht und Status deiner Räume",
+      apply: "Apply, Dry Run und Vorschau",
+      thresholds: "Heizstrategie je Jahreszeit optimieren",
+      debug: "Tiefgehende Analyse und Systeminformationen",
+    };
     let content;
     try {
       content = hass ? renderer(hass, this) : `<div class="notice">Home Assistant state wird geladen.</div>`;
@@ -901,17 +1346,21 @@ class BcpApp extends HTMLElement {
     const html = `<style>${CSS}</style>
       <div class="app">
         <aside class="sidebar">
-          <div class="brand">${icon("mdi:thermostat")}<div><b>Benni Climate Policy</b><small>Read-only Diagnose</small></div></div>
+          <div class="brand"><div class="brand-badge">${icon("mdi:home-thermometer-outline")}</div><div><b>Benni Climate Policy</b><small>Smart Climate Control</small></div></div>
           <nav class="nav">${nav}</nav>
-          <div class="side-foot">Panel: /${esc("benni-climate-policy")}</div>
+          <div class="side-foot">
+            <div class="side-status">${statusChip(sys, sys === "on" ? "System bereit" : "System prüfen")}</div>
+            <div>${esc(sys === "on" ? "Alle Dienste online" : "Bitte Status prüfen")}</div>
+            <br>Panel: /${esc("benni-climate-policy")}
+          </div>
         </aside>
         <main class="main">
           <header class="head">
-            <div><h1>${esc(view[1])}</h1><p>benni_climate_policy</p></div>
+            <div><h1>${esc(view[1])}</h1><p>${esc(subtitles[view[0]] || "benni_climate_policy")}</p></div>
             <div class="chips">
-              ${statusChip(sys, `Ready ${sys}`)}
-              ${statusChip(apply, `Apply ${apply}`)}
-              ${statusChip(effective === "missing" ? "missing" : "ok", `Teff ${effective}`)}
+              ${statusChip(sys, sys === "on" ? "Bereit" : `Ready ${sys}`)}
+              ${statusChip(apply, apply === "on" ? "Apply an" : "Apply aus")}
+              ${statusChip(effective === "missing" ? "missing" : "ok", `Teff ${tempText(effective)}`)}
             </div>
           </header>
           <div id="content">${content}</div>
