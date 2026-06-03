@@ -20,6 +20,7 @@ BATH_BONUS_TEFF_0 = 0.5
 BATH_BONUS_TEFF_5 = 0.3
 BATH_BONUS_TEFF_WARM = -0.5
 BATH_HUMIDITY_ACUTE_THRESHOLD = 75.0
+BATH_HUMIDITY_ACUTE_RISE_THRESHOLD = 15.0
 BATH_HUMIDITY_END_THRESHOLD = 60.0
 BATH_DEWPOINT_ACUTE_THRESHOLD = 17.0
 BATH_AH_DELTA_AFTERRUN_ON = 1.5
@@ -39,6 +40,7 @@ OPT_BATH_BONUS_TEFF_0 = "bath_bonus_teff_0"
 OPT_BATH_BONUS_TEFF_5 = "bath_bonus_teff_5"
 OPT_BATH_BONUS_TEFF_WARM = "bath_bonus_teff_warm"
 OPT_BATH_HUMIDITY_ACUTE_THRESHOLD = "bath_humidity_acute_threshold"
+OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD = "bath_humidity_acute_rise_threshold"
 OPT_BATH_HUMIDITY_END_THRESHOLD = "bath_humidity_end_threshold"
 OPT_BATH_DEWPOINT_ACUTE_THRESHOLD = "bath_dewpoint_acute_threshold"
 OPT_BATH_AH_DELTA_AFTERRUN_ON = "bath_ah_delta_afterrun_on"
@@ -59,6 +61,7 @@ BATH_OPTION_KEYS = (
     OPT_BATH_BONUS_TEFF_5,
     OPT_BATH_BONUS_TEFF_WARM,
     OPT_BATH_HUMIDITY_ACUTE_THRESHOLD,
+    OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD,
     OPT_BATH_HUMIDITY_END_THRESHOLD,
     OPT_BATH_DEWPOINT_ACUTE_THRESHOLD,
     OPT_BATH_AH_DELTA_AFTERRUN_ON,
@@ -121,6 +124,7 @@ class BathTuning:
     bonus_teff_5: float = BATH_BONUS_TEFF_5
     bonus_teff_warm: float = BATH_BONUS_TEFF_WARM
     humidity_acute_threshold: float = BATH_HUMIDITY_ACUTE_THRESHOLD
+    humidity_acute_rise_threshold: float = BATH_HUMIDITY_ACUTE_RISE_THRESHOLD
     humidity_end_threshold: float = BATH_HUMIDITY_END_THRESHOLD
     dewpoint_acute_threshold: float = BATH_DEWPOINT_ACUTE_THRESHOLD
     ah_delta_afterrun_on: float = BATH_AH_DELTA_AFTERRUN_ON
@@ -149,6 +153,7 @@ class BathTuning:
             "bonus_teff_5": self.bonus_teff_5,
             "bonus_teff_warm": self.bonus_teff_warm,
             "humidity_acute_threshold": self.humidity_acute_threshold,
+            "humidity_acute_rise_threshold": self.humidity_acute_rise_threshold,
             "humidity_end_threshold": self.humidity_end_threshold,
             "dewpoint_acute_threshold": self.dewpoint_acute_threshold,
             "ah_delta_afterrun_on": self.ah_delta_afterrun_on,
@@ -178,6 +183,7 @@ def bath_tuning_from_options(options: Mapping[str, Any] | None) -> BathTuning:
         bonus_teff_5=_float_option(options, OPT_BATH_BONUS_TEFF_5, BATH_BONUS_TEFF_5, sources, min_value=-5, max_value=5),
         bonus_teff_warm=_float_option(options, OPT_BATH_BONUS_TEFF_WARM, BATH_BONUS_TEFF_WARM, sources, min_value=-5, max_value=5),
         humidity_acute_threshold=_float_option(options, OPT_BATH_HUMIDITY_ACUTE_THRESHOLD, BATH_HUMIDITY_ACUTE_THRESHOLD, sources, min_value=0, max_value=100),
+        humidity_acute_rise_threshold=_float_option(options, OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD, BATH_HUMIDITY_ACUTE_RISE_THRESHOLD, sources, min_value=0, max_value=100),
         humidity_end_threshold=_float_option(options, OPT_BATH_HUMIDITY_END_THRESHOLD, BATH_HUMIDITY_END_THRESHOLD, sources, min_value=0, max_value=100),
         dewpoint_acute_threshold=_float_option(options, OPT_BATH_DEWPOINT_ACUTE_THRESHOLD, BATH_DEWPOINT_ACUTE_THRESHOLD, sources, min_value=-20, max_value=40),
         ah_delta_afterrun_on=_float_option(options, OPT_BATH_AH_DELTA_AFTERRUN_ON, BATH_AH_DELTA_AFTERRUN_ON, sources, min_value=-10, max_value=30),
@@ -205,6 +211,8 @@ class BathroomHumidityInput:
     bathroom_humidity: float | None
     living_temperature: float | None
     living_humidity: float | None
+    previous_bathroom_humidity: float | None = None
+    previous_bathroom_humidity_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +287,9 @@ def humidity_diagnostics(inp: BathroomHumidityInput) -> dict[str, Any]:
         "bathroom_humidity": inp.bathroom_humidity,
         "living_temperature": inp.living_temperature,
         "living_humidity": inp.living_humidity,
+        "previous_bathroom_humidity": inp.previous_bathroom_humidity,
+        "previous_bathroom_humidity_at": inp.previous_bathroom_humidity_at.isoformat() if inp.previous_bathroom_humidity_at else None,
+        "bathroom_humidity_rise_5m": None,
         "dewpoint": None,
         "absolute_humidity_bathroom": None,
         "absolute_humidity_living": None,
@@ -287,6 +298,8 @@ def humidity_diagnostics(inp: BathroomHumidityInput) -> dict[str, Any]:
     }
     if inp.bathroom_temperature is None or inp.bathroom_humidity is None:
         return out
+    if inp.previous_bathroom_humidity is not None:
+        out["bathroom_humidity_rise_5m"] = round(inp.bathroom_humidity - inp.previous_bathroom_humidity, 2)
     out["dewpoint"] = dew_point_celsius(inp.bathroom_temperature, inp.bathroom_humidity)
     out["absolute_humidity_bathroom"] = absolute_humidity_gm3(inp.bathroom_temperature, inp.bathroom_humidity)
     if inp.living_temperature is not None and inp.living_humidity is not None:
@@ -388,17 +401,25 @@ def decide_bathroom_fan(
     humidity = humidity_input.bathroom_humidity
     dewpoint = diagnostics["dewpoint"]
     ah_delta = diagnostics["ah_delta"]
+    humidity_rise = diagnostics["bathroom_humidity_rise_5m"]
+    humidity_rise_recent = (
+        humidity_rise is not None
+        and humidity_input.previous_bathroom_humidity_at is not None
+        and now - humidity_input.previous_bathroom_humidity_at <= timedelta(minutes=5)
+    )
     mode: BathFanMode = "off"
     reason = "bath_fan_no_need"
     blockers: list[str] = []
 
     acute = (
+        (humidity_rise_recent and humidity_rise > tuning.humidity_acute_rise_threshold)
+        or
         (humidity is not None and humidity > tuning.humidity_acute_threshold)
         or (dewpoint is not None and dewpoint > tuning.dewpoint_acute_threshold)
     )
     if acute:
         mode = "akut"
-        reason = "bath_fan_acute_humidity_or_dewpoint"
+        reason = "bath_fan_acute_humidity_rise_or_threshold"
     elif ah_delta is None:
         reason = "bath_fan_missing_humidity_delta"
         blockers.append("humidity_delta_missing")

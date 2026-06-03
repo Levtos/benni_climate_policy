@@ -65,12 +65,39 @@ from .models import (
     ZonePlan,
 )
 from .options import apply_cooldown_seconds_from_config
-from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_tuning_from_options, policy_visibility_snapshot
+from .policy import (
+    decide_zone,
+    effective_outdoor_temperature,
+    empty_context,
+    policy_tuning_from_options,
+    policy_visibility_snapshot,
+    setpoint_for,
+    threshold_for_month_config,
+)
 from .tuning_options import tuning_options_snapshot, validated_options_update
 from .weather_resolver import DEFAULT_FORECAST_CACHE_TTL_SECONDS, ForecastCache, WeatherResolution, WeatherResolver
 
 _LOGGER = logging.getLogger(__name__)
 EVALUATE_DEBOUNCE_SECONDS = 2
+LAST_KNOWN_VALUE_TTL_SECONDS = 2 * 60 * 60
+TERRACE_SUSTAINED_OPEN_DELAY = timedelta(minutes=5)
+BOOST_STANDARD_DURATION = timedelta(minutes=45)
+BOOST_PRE_NIGHT_DURATION = timedelta(minutes=15)
+HEAT_STRENGTH = {"off": 0, "protection": 0, "spar": 1, "grundwaerme": 1, "komfort": 2, "boost": 3}
+IMMEDIATE_DECISION_REASONS = {
+    "bio_sleep_forces_off",
+    "bio_waking_forces_off",
+    "window_blocks_heating",
+    "presence_far_forces_off",
+    "passing_through_blocks_preheat",
+    "dynamic_wakeup_cutoff",
+    "presence_preheat_caps_to_spar",
+    "free_time_early_night_holds_comfort",
+    "night_temperature_ramp_late_evening",
+    "night_temperature_ramp_early_night",
+    "night_temperature_ramp_late_night",
+    "night_hard_spar",
+}
 
 
 def _float(value: str | None) -> float | None:
@@ -150,6 +177,15 @@ class ClimatePolicyCoordinator:
         self.last_applied_hash: dict[str, str | None] = {zone: None for zone in apply_zones}
         self.last_apply_at: dict[str, datetime | None] = {zone: None for zone in apply_zones}
         self.last_bath_fan_active_at: datetime | None = None
+        self._last_good_numeric: dict[str, tuple[float, datetime]] = {}
+        self._numeric_fallback_keys: set[str] = set()
+        self._zone_profile_state: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
+        self._zone_profile_reason: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
+        self._zone_hysteresis_pending: dict[str, tuple[str, str, datetime]] = {}
+        self._boost_until: dict[str, datetime | None] = {zone: None for zone in HEATING_ZONES}
+        self._boost_reason: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
+        self._last_day_state: str | None = None
+        self._last_bathroom_humidity_sample: tuple[float, datetime] | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -250,8 +286,26 @@ class ClimatePolicyCoordinator:
         state = self.hass.states.get(entity_id) if entity_id else None
         return state.state if state else None
 
-    def _float_state(self, key: str) -> float | None:
-        return _float(self._state(key))
+    def _state_obj(self, key: str):
+        entity_id = self.config.get(key)
+        return self.hass.states.get(entity_id) if entity_id else None
+
+    def _float_state(self, key: str, *, hold_last: bool = True) -> float | None:
+        value = _float(self._state(key))
+        now = dt_util.now()
+        if value is not None:
+            self._last_good_numeric[key] = (value, now)
+            return value
+        if not hold_last:
+            return None
+        cached = self._last_good_numeric.get(key)
+        if cached is None:
+            return None
+        cached_value, cached_at = cached
+        if now - cached_at > timedelta(seconds=LAST_KNOWN_VALUE_TTL_SECONDS):
+            return None
+        self._numeric_fallback_keys.add(key)
+        return cached_value
 
     def _sun_elevation(self) -> float | None:
         entity_id = self.config.get(CONF_SUN)
@@ -344,6 +398,7 @@ class ClimatePolicyCoordinator:
         self.last_recalculate_reason = reason
         tuning = self.policy_tuning
         bath_tuning = self.bath_tuning
+        self._numeric_fallback_keys.clear()
         context = ContextResolver(self.hass, self.config).resolve()
         real_temperature = self._float_state(CONF_OUTDOOR_TEMPERATURE)
         self.weather_resolution = await WeatherResolver(
@@ -371,9 +426,20 @@ class ClimatePolicyCoordinator:
             feels_like_damping=tuning.feels_like_damping,
             forecast_weight=tuning.forecast_weight,
         )
+        if self._numeric_fallback_keys & {
+            CONF_OUTDOOR_TEMPERATURE,
+            CONF_OUTDOOR_FEELS_LIKE,
+            CONF_FORECAST_TEMPERATURE,
+            CONF_OUTDOOR_LUX,
+        }:
+            effective = replace(effective, input_quality="fallback")
+        zone_inputs = {
+            ZONE_LIVING: self._zone_input(ZONE_LIVING),
+            ZONE_KITCHEN: self._zone_input(ZONE_KITCHEN),
+        }
         plans = {
-            ZONE_LIVING: decide_zone(self._zone_input(ZONE_LIVING), context, effective, now, tuning=tuning),
-            ZONE_KITCHEN: decide_zone(self._zone_input(ZONE_KITCHEN), context, effective, now, tuning=tuning),
+            ZONE_LIVING: decide_zone(zone_inputs[ZONE_LIVING], context, effective, now, tuning=tuning),
+            ZONE_KITCHEN: decide_zone(zone_inputs[ZONE_KITCHEN], context, effective, now, tuning=tuning),
             ZONE_BATHROOM: decide_bathroom_climate(
                 self._bathroom_climate_input(),
                 context,
@@ -382,6 +448,10 @@ class ClimatePolicyCoordinator:
                 bath_tuning,
             ),
         }
+        for zone_id in HEATING_ZONES:
+            plans[zone_id] = self._apply_hysteresis(zone_id, plans[zone_id], now, tuning)
+        self._apply_stateful_boosts(plans, zone_inputs, context, now, tuning)
+        self._commit_zone_profiles(plans)
         self.bathroom_fan_plan = decide_bathroom_fan(
             self._bathroom_humidity_input(),
             plans[ZONE_BATHROOM],
@@ -390,23 +460,51 @@ class ClimatePolicyCoordinator:
             last_fan_active_at=self.last_bath_fan_active_at,
             tuning=bath_tuning,
         )
+        self._last_day_state = _state_value(context.day_state.value)
         self.decision = ClimateDecision(context, effective, plans, now, self.system_ready)
         self._notify()
         if auto_apply and self.apply_active:
             await self.async_apply(manual=False, dry_run=False)
         return self.decision
 
+    def _living_area_windows(self) -> tuple[WindowState, ...]:
+        return (
+            self._window_state(CONF_LIVING_WINDOW_LEFT_OPEN, CONF_LIVING_WINDOW_LEFT_TILT),
+            self._window_state(CONF_LIVING_WINDOW_RIGHT_OPEN, CONF_LIVING_WINDOW_RIGHT_TILT),
+            self._window_state(
+                CONF_KITCHEN_PATIO_OPEN,
+                CONF_KITCHEN_PATIO_TILT,
+                sustained_open_delay=TERRACE_SUSTAINED_OPEN_DELAY,
+            ),
+        )
+
+    def _window_state(
+        self,
+        open_key: str,
+        tilt_key: str,
+        *,
+        sustained_open_delay: timedelta = timedelta(0),
+    ) -> WindowState:
+        open_state = self._state_obj(open_key)
+        tilt_state = self._state_obj(tilt_key)
+        active_since = None
+        if open_state and open_state.state not in ("off", "closed", "false", "False"):
+            active_since = open_state.last_changed
+        if tilt_state and tilt_state.state in ("on", "open", "true", "True"):
+            active_since = min(active_since, tilt_state.last_changed) if active_since else tilt_state.last_changed
+        return WindowState(
+            open_state.state if open_state else None,
+            tilt_state.state if tilt_state else None,
+            active_since=active_since,
+            sustained_open_delay=sustained_open_delay,
+        )
+
     def _zone_input(self, zone: str) -> ZoneInput:
         windows: tuple[WindowState, ...]
-        if zone == ZONE_LIVING:
-            windows = (
-                WindowState(self._state(CONF_LIVING_WINDOW_LEFT_OPEN), self._state(CONF_LIVING_WINDOW_LEFT_TILT)),
-                WindowState(self._state(CONF_LIVING_WINDOW_RIGHT_OPEN), self._state(CONF_LIVING_WINDOW_RIGHT_TILT)),
-            )
+        if zone in (ZONE_LIVING, ZONE_KITCHEN):
+            windows = self._living_area_windows()
         else:
-            windows = (
-                WindowState(self._state(CONF_KITCHEN_PATIO_OPEN), self._state(CONF_KITCHEN_PATIO_TILT)),
-            )
+            windows = ()
         return ZoneInput(
             zone=zone,
             room_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=zone)),
@@ -414,6 +512,183 @@ class ClimatePolicyCoordinator:
             thermostat_entity_id=self.config.get(CONF_ZONE_THERMOSTAT.format(zone=zone)),
             windows=windows,
         )
+
+    def _hysteresis_requirement(
+        self,
+        previous: str,
+        candidate: str,
+        teff: float | None,
+        now: datetime,
+        tuning: Any,
+    ) -> tuple[bool, int, str] | None:
+        if teff is None or previous not in HEAT_STRENGTH or candidate not in HEAT_STRENGTH:
+            return None
+        thresholds = threshold_for_month_config(now.month, tuning)
+        off_threshold = float(thresholds["off"])
+        comfort_threshold = thresholds["comfort"]
+        boost_threshold = thresholds["boost"]
+
+        if candidate == "off" and previous != "off":
+            if teff < off_threshold + 1.5:
+                return (False, 0, "hysteresis_wait_off_margin")
+            return (True, 120 * 60, "hysteresis_wait_off_duration")
+        if previous == "off" and candidate != "off":
+            if teff > off_threshold - 0.5:
+                return (False, 0, "hysteresis_wait_off_exit_margin")
+            return (True, 45 * 60, "hysteresis_wait_off_exit_duration")
+
+        previous_strength = HEAT_STRENGTH[previous]
+        candidate_strength = HEAT_STRENGTH[candidate]
+        if candidate_strength < previous_strength:
+            if previous == "boost" and boost_threshold is not None and teff <= float(boost_threshold) + 0.8:
+                return (False, 0, "hysteresis_wait_warmer_boost_margin")
+            if previous == "komfort" and comfort_threshold is not None and teff <= float(comfort_threshold) + 0.8:
+                return (False, 0, "hysteresis_wait_warmer_comfort_margin")
+            return (True, 60 * 60, "hysteresis_wait_warmer_duration")
+        if candidate_strength > previous_strength:
+            if candidate == "boost" and boost_threshold is not None and teff > float(boost_threshold) - 0.8:
+                return (False, 0, "hysteresis_wait_colder_boost_margin")
+            if candidate == "komfort" and comfort_threshold is not None and teff > float(comfort_threshold) - 0.8:
+                return (False, 0, "hysteresis_wait_colder_comfort_margin")
+            return (True, 30 * 60, "hysteresis_wait_colder_duration")
+        return None
+
+    def _hold_hysteresis_plan(self, plan: ZonePlan, previous: str, reason: str, now: datetime, tuning: Any) -> ZonePlan:
+        target = setpoint_for(previous, plan.effective_outdoor_temperature, tuning)
+        return replace(
+            plan,
+            profile=previous,  # type: ignore[arg-type]
+            target_temperature=target,
+            reason=reason,
+            decision_path=[*plan.decision_path, reason],
+            is_boost_active=previous == "boost",
+            hysteresis_state=f"holding:{previous}->candidate:{plan.profile}",
+            last_calculated=now.isoformat(),
+        )
+
+    def _apply_hysteresis(self, zone: str, plan: ZonePlan, now: datetime, tuning: Any) -> ZonePlan:
+        previous = self._zone_profile_state.get(zone)
+        if previous is None or previous == plan.profile:
+            self._zone_hysteresis_pending.pop(zone, None)
+            return plan
+        previous_reason = self._zone_profile_reason.get(zone)
+        if plan.reason in IMMEDIATE_DECISION_REASONS or previous_reason in IMMEDIATE_DECISION_REASONS:
+            self._zone_hysteresis_pending.pop(zone, None)
+            return plan
+        requirement = self._hysteresis_requirement(previous, plan.profile, plan.effective_outdoor_temperature, now, tuning)
+        if requirement is None:
+            self._zone_hysteresis_pending.pop(zone, None)
+            return plan
+
+        can_start_timer, required_seconds, reason = requirement
+        if not can_start_timer:
+            self._zone_hysteresis_pending.pop(zone, None)
+            return self._hold_hysteresis_plan(plan, previous, reason, now, tuning)
+
+        pending = self._zone_hysteresis_pending.get(zone)
+        if pending is None or pending[0] != previous or pending[1] != plan.profile:
+            self._zone_hysteresis_pending[zone] = (previous, plan.profile, now)
+            return self._hold_hysteresis_plan(plan, previous, reason, now, tuning)
+        if (now - pending[2]).total_seconds() < required_seconds:
+            return self._hold_hysteresis_plan(plan, previous, reason, now, tuning)
+        self._zone_hysteresis_pending.pop(zone, None)
+        return plan
+
+    def _boosted_plan(self, plan: ZonePlan, now: datetime, until: datetime, reason: str, tuning: Any) -> ZonePlan:
+        target = setpoint_for("boost", plan.effective_outdoor_temperature, tuning)
+        return replace(
+            plan,
+            profile="boost",
+            target_temperature=target,
+            raw_target_temperature=target,
+            reason=reason,
+            decision_path=[*plan.decision_path, reason],
+            is_boost_active=True,
+            boost_until=until.isoformat(),
+            hysteresis_state="boost_timer_active",
+            last_calculated=now.isoformat(),
+        )
+
+    def _apply_stateful_boosts(
+        self,
+        plans: dict[str, ZonePlan],
+        zone_inputs: dict[str, ZoneInput],
+        context: Any,
+        now: datetime,
+        tuning: Any,
+    ) -> None:
+        day_state = _state_value(context.day_state.value)
+        bio = _state_value(context.bio_state.value)
+        presence_band = _state_value(context.presence_band.value)
+        pre_night_trigger = (
+            day_state == "early_night"
+            and self._last_day_state != "early_night"
+            and bio == "awake"
+            and presence_band in ("home", "near")
+        )
+        for zone_id in HEATING_ZONES:
+            plan = plans[zone_id]
+            if plan.profile == "off":
+                self._boost_until[zone_id] = None
+                self._boost_reason[zone_id] = None
+                continue
+
+            active_until = self._boost_until.get(zone_id)
+            if active_until and active_until > now and plan.profile in ("komfort", "boost"):
+                plans[zone_id] = self._boosted_plan(
+                    plan,
+                    now,
+                    active_until,
+                    self._boost_reason.get(zone_id) or "boost_timer_active",
+                    tuning,
+                )
+                continue
+            if active_until and active_until <= now:
+                self._boost_until[zone_id] = None
+                self._boost_reason[zone_id] = None
+                active_until = None
+            if plan.profile == "boost" and self._zone_profile_state.get(zone_id) == "boost" and active_until is None:
+                target = setpoint_for("komfort", plan.effective_outdoor_temperature, tuning)
+                plans[zone_id] = replace(
+                    plan,
+                    profile="komfort",
+                    target_temperature=target,
+                    raw_target_temperature=target,
+                    reason="boost_timer_elapsed_fallback_komfort",
+                    decision_path=[*plan.decision_path, "boost_timer_elapsed_fallback_komfort"],
+                    is_boost_active=False,
+                    boost_until=None,
+                    hysteresis_state="boost_timer_elapsed",
+                    last_calculated=now.isoformat(),
+                )
+                continue
+
+            start_reason: str | None = None
+            duration = BOOST_STANDARD_DURATION
+            teff = plan.effective_outdoor_temperature
+            if pre_night_trigger and teff is not None and teff <= 5 and plan.profile in ("komfort", "boost"):
+                start_reason = "pre_night_thermal_boost"
+                duration = BOOST_PRE_NIGHT_DURATION
+            elif plan.profile == "boost":
+                start_reason = plan.reason
+            elif self._zone_profile_state.get(zone_id) in ("off", "spar") and plan.profile == "komfort":
+                room_temp = zone_inputs[zone_id].room_temperature
+                comfort_target = setpoint_for("komfort", teff, tuning)
+                if room_temp is not None and room_temp <= comfort_target - tuning.boost_activation_delta:
+                    start_reason = "boost_transition_to_comfort_room_delta"
+
+            if start_reason is None:
+                continue
+            until = now + duration
+            self._boost_until[zone_id] = until
+            self._boost_reason[zone_id] = start_reason
+            plans[zone_id] = self._boosted_plan(plan, now, until, start_reason, tuning)
+
+    def _commit_zone_profiles(self, plans: dict[str, ZonePlan]) -> None:
+        for zone_id in HEATING_ZONES:
+            plan = plans[zone_id]
+            self._zone_profile_state[zone_id] = plan.profile
+            self._zone_profile_reason[zone_id] = plan.reason
 
     def _bathroom_climate_input(self) -> BathroomClimateInput:
         return BathroomClimateInput(
@@ -423,11 +698,18 @@ class ClimatePolicyCoordinator:
         )
 
     def _bathroom_humidity_input(self) -> BathroomHumidityInput:
+        now = dt_util.now()
+        bathroom_humidity = self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM))
+        previous = self._last_bathroom_humidity_sample
+        if bathroom_humidity is not None:
+            self._last_bathroom_humidity_sample = (bathroom_humidity, now)
         return BathroomHumidityInput(
             bathroom_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM)),
-            bathroom_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM)),
+            bathroom_humidity=bathroom_humidity,
             living_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING)),
             living_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING)),
+            previous_bathroom_humidity=previous[0] if previous else None,
+            previous_bathroom_humidity_at=previous[1] if previous else None,
         )
 
     async def async_set_apply_active(self, value: bool) -> None:

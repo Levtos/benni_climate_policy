@@ -112,9 +112,63 @@ def test_june_july_august_allow_only_off_or_spar_and_disable_boost():
         assert not plan.is_boost_active
 
 
+def test_living_area_window_blocker_wins_over_summer_spar():
+    for zone_name in ("living_room", "kitchen"):
+        for blocker in (WindowState("off", "on"), WindowState("on", "off")):
+            plan = decide_zone(
+                ZoneInput(
+                    zone_name,
+                    room_temperature=21,
+                    thermostat_entity_id=f"climate.{zone_name}",
+                    windows=(blocker,),
+                ),
+                ctx(),
+                eff(0),
+                datetime(2026, 7, 1, 12),
+            )
+
+            assert plan.profile == "off"
+            assert plan.target_temperature == 10.0
+            assert plan.reason == "window_blocks_heating"
+
+
+def test_terrace_door_sustained_open_delay_until_early_night():
+    now = datetime(2026, 7, 1, 18)
+    delayed = WindowState("on", "off", active_since=now - timedelta(minutes=4), sustained_open_delay=timedelta(minutes=5))
+    plan = decide_zone(ZoneInput("kitchen", thermostat_entity_id="climate.kitchen", windows=(delayed,)), ctx(), eff(0), now)
+    assert plan.profile == "spar"
+
+    sustained = WindowState("on", "off", active_since=now - timedelta(minutes=5), sustained_open_delay=timedelta(minutes=5))
+    plan = decide_zone(ZoneInput("kitchen", thermostat_entity_id="climate.kitchen", windows=(sustained,)), ctx(), eff(0), now)
+    assert plan.profile == "off"
+    assert plan.reason == "window_blocks_heating"
+
+    early_night = decide_zone(
+        ZoneInput("kitchen", thermostat_entity_id="climate.kitchen", windows=(delayed,)),
+        ctx(day_state="early_night"),
+        eff(0),
+        now.replace(hour=21),
+    )
+    assert early_night.profile == "off"
+
+
 def test_free_time_early_night_holds_comfort_outside_summer():
     plan = decide_zone(zone(), ctx(activity="free_time", day_state="early_night"), eff(14), datetime(2026, 10, 1, 21))
     assert plan.profile == "komfort"
+    assert plan.target_temperature == 22.0
+
+
+def test_night_temperature_ramp_targets():
+    late_evening = decide_zone(zone(), ctx(day_state="late_evening"), eff(14), datetime(2026, 10, 1, 21))
+    early_night = decide_zone(zone(), ctx(day_state="early_night"), eff(14), datetime(2026, 10, 1, 22))
+    late_night = decide_zone(zone(), ctx(day_state="late_night"), eff(14), datetime(2026, 10, 2, 1))
+
+    assert late_evening.profile == "komfort"
+    assert late_evening.target_temperature == 23.0
+    assert early_night.profile == "komfort"
+    assert early_night.target_temperature == 22.0
+    assert late_night.profile == "spar"
+    assert late_night.target_temperature == 21.0
 
 
 def test_dynamic_wakeup_cutoff_forces_off():

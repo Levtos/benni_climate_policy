@@ -22,6 +22,8 @@ const JSON_CACHE = new WeakMap();
 const ZONES = {
   living_room: {
     label: "Wohnzimmer",
+    tempKey: "living_room_temperature",
+    tempEntity: "sensor.living_temperature_atomic",
     mode: "sensor.living_room_climate_mode",
     target: "sensor.living_room_climate_target_temp",
     planHash: "sensor.living_room_climate_plan_hash",
@@ -32,6 +34,8 @@ const ZONES = {
   },
   kitchen: {
     label: "Küche",
+    tempKey: "kitchen_temperature",
+    tempEntity: "sensor.kitchen_temperature_atomic",
     mode: "sensor.kitchen_climate_mode",
     target: "sensor.kitchen_climate_target_temp",
     planHash: "sensor.kitchen_climate_plan_hash",
@@ -42,6 +46,8 @@ const ZONES = {
   },
   bathroom: {
     label: "Bad",
+    tempKey: "bathroom_temperature",
+    tempEntity: "sensor.bath_temperature_atomic",
     mode: "sensor.bathroom_climate_mode",
     target: "sensor.bathroom_climate_target_temp",
     planHash: "sensor.bathroom_climate_plan_hash",
@@ -51,6 +57,12 @@ const ZONES = {
     blocked: "binary_sensor.bathroom_climate_apply_blocked",
   },
 };
+
+const LIVING_AREA_WINDOWS = [
+  ["Wohnzimmerfenster links", "binary_sensor.living_window_left_open_atomic", "binary_sensor.living_window_left_tilt_atomic"],
+  ["Wohnzimmerfenster rechts", "binary_sensor.living_window_right_open_atomic", "binary_sensor.living_window_right_tilt_atomic"],
+  ["Terrassentür Küche", "binary_sensor.kitchen_patio_door_open_atomic", "binary_sensor.kitchen_patio_door_tilt_atomic"],
+];
 
 const NAV = [
   ["overview", "Übersicht", "mdi:view-dashboard-outline"],
@@ -99,6 +111,7 @@ const TUNING_GROUPS = [
     ["bath_setpoint_comfort", "Komfort-Setpoint"],
     ["bath_comfort_suppression_teff", "Komfort bis Teff"],
     ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
+    ["bath_humidity_acute_rise_threshold", "Akut-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
     ["bath_dewpoint_acute_threshold", "Akut-Taupunkt"],
     ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
@@ -232,17 +245,7 @@ const CSS = `
   position: relative;
 }
 .hero::after {
-  content: "";
-  position: absolute;
-  inset: auto -20px 0 auto;
-  width: 440px;
-  height: 190px;
-  opacity: .74;
-  background:
-    linear-gradient(135deg, transparent 48%, rgba(34, 199, 255, .72) 49% 51%, transparent 52%) 32px 10px / 160px 130px no-repeat,
-    linear-gradient(90deg, transparent 46%, rgba(34, 199, 255, .35) 47% 49%, transparent 50%) 175px 54px / 110px 120px no-repeat,
-    radial-gradient(ellipse at bottom, rgba(34, 199, 255, .24), transparent 62%);
-  pointer-events: none;
+  display: none;
 }
 .hero-icon, .round-icon {
   display: grid;
@@ -268,6 +271,7 @@ const CSS = `
   font-size: 30px;
   font-weight: 800;
 }
+.weather-chip { display: block; margin-top: 10px; color: var(--bcp-muted); text-align: right; }
 .metric { padding: 16px 18px; min-height: 96px; }
 .metric .label { color: var(--bcp-muted); font-size: 13px; margin-bottom: 8px; }
 .metric .value { font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
@@ -392,6 +396,20 @@ button.action[disabled] { opacity: .48; cursor: not-allowed; }
 .source-pill { display: inline-flex; align-items: center; border: 1px solid var(--bcp-line); border-radius: 999px; padding: 2px 7px; font-size: 11px; color: var(--bcp-muted); white-space: nowrap; }
 .source-pill.user { color: var(--bcp-info); border-color: rgba(69, 166, 255, .38); }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.segmented { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.segmented button {
+  border: 1px solid var(--bcp-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  color: var(--bcp-muted);
+  padding: 9px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.segmented button.active { color: var(--bcp-accent); border-color: rgba(34, 199, 255, .5); background: rgba(34, 199, 255, .10); }
+.matrix { min-width: 980px; }
+.matrix input[type="number"] { width: 92px; }
+.diagnostics-package { width: 100%; min-height: 260px; resize: vertical; margin-top: 12px; }
 .error-box { border: 1px solid rgba(255, 85, 85, .55); background: rgba(255, 85, 85, .10); color: var(--bcp-error); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .notice { border: 1px dashed var(--bcp-line); border-radius: 8px; padding: 14px; color: var(--bcp-muted); background: rgba(255, 255, 255, .035); }
 .info-band { padding: 18px 20px; display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: center; }
@@ -607,10 +625,53 @@ function zonePlan(hass, zone, app) {
   };
 }
 
+function inputItems(hass, app) {
+  return endpointDebug(app).inputs || debugPayload(hass, app).inputs || [];
+}
+
+function inputItem(app, key) {
+  const inputs = endpointDebug(app).inputs || debugPayload(null, app).inputs || [];
+  return inputs.find((item) => item?.key === key) || null;
+}
+
+function zoneRoomTemperature(hass, app, zone) {
+  const meta = ZONES[zone] || {};
+  const fromInput = inputItem(app, meta.tempKey);
+  if (fromInput) {
+    if (fromInput.status === "ok") return tempText(fromInput.state, "nicht konfiguriert");
+    return fromInput.status || "nicht konfiguriert";
+  }
+  const entityId = meta.tempEntity;
+  if (!entityId) return "nicht konfiguriert";
+  const state = stateObj(hass, entityId);
+  if (!state) return "nicht konfiguriert";
+  return tempText(state.state, state.state || "unavailable");
+}
+
 function displayValue(value, missing = "unbekannt") {
   const text = asText(value, missing);
   if (text === "missing" || text === "unknown" || text === "unavailable") return missing;
   return text;
+}
+
+function translatePresence(value) {
+  const raw = String(value ?? "").toLowerCase();
+  if (["zuhause", "home", "present", "daheim"].includes(raw)) return "Zuhause";
+  if (["nicht_leer", "not_empty", "occupied"].includes(raw)) return "Haushalt nicht leer";
+  if (["leer", "empty", "away", "not_home", "far"].includes(raw)) return "Niemand zuhause";
+  return displayValue(value, "nicht geladen");
+}
+
+function presenceSummary(hass, app) {
+  const ctx = contextSnapshot(hass, app);
+  return translatePresence(
+    ctx.presence_personal?.value
+      ?? ctx.presence_band?.value
+      ?? ctx.presence_household?.value
+      ?? stateText(hass, "sensor.context_presence_personal_combined", null)
+      ?? stateText(hass, "sensor.context_presence_band_combined", null)
+      ?? stateText(hass, "sensor.context_presence_household_combined", "nicht geladen"),
+  );
 }
 
 function numberLike(value) {
@@ -661,10 +722,10 @@ function zoneTone(zone) {
 function compactReason(reason, zone = "") {
   const raw = String(reason ?? "").toLowerCase();
   if (!raw || raw === "missing" || raw === "none" || raw === "unavailable") return "Keine besondere Einschränkung erkannt.";
-  if (raw.includes("window") || raw.includes("fenster")) return "Ein Fenster begrenzt die Heizleistung.";
-  if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv.";
+  if (raw.includes("window") || raw.includes("fenster")) return "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.";
+  if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv: Sparmodus statt Komfortheizen.";
   if (raw.includes("spar")) return "Sparmodus ist aktiv.";
-  if (raw.includes("ground") || raw.includes("grund")) return "Grundwärme schützt Komfort und Substanz.";
+  if (raw.includes("ground") || raw.includes("grund")) return "Grundwärme gegen Auskühlung und Feuchte.";
   if (raw.includes("comfort") || raw.includes("komfort")) return "Komfortmodus ist erlaubt.";
   if (raw.includes("boost")) return "Boost ist gerade möglich oder angefragt.";
   if (raw.includes("cooldown")) return "Cooldown verhindert zu häufiges Anwenden.";
@@ -672,6 +733,21 @@ function compactReason(reason, zone = "") {
   if (raw.includes("humidity") || raw.includes("feuchte") || raw.includes("dew")) return "Feuchtewerte bestimmen die Bad-Logik.";
   if (raw.includes("fan") || raw.includes("lüfter") || raw.includes("luefter")) return "Der Badlüfter wird koordiniert.";
   return `${zone ? `${ZONES[zone]?.label || zone}: ` : ""}${displayValue(reason)}`;
+}
+
+function livingAreaWindowStatus(hass) {
+  const active = [];
+  for (const [label, openEntity, tiltEntity] of LIVING_AREA_WINDOWS) {
+    const open = stateText(hass, openEntity, "missing");
+    const tilt = stateText(hass, tiltEntity, "missing");
+    if (open === "on") active.push(`${label} offen`);
+    if (tilt === "on") active.push(`${label} gekippt`);
+  }
+  if (!active.length) return { blocked: false, label: "Fenster/Tür geschlossen" };
+  return {
+    blocked: true,
+    label: active.length > 1 ? "Fenster/Tür offen oder gekippt" : active[0],
+  };
 }
 
 function primaryReason(plan, zone = "") {
@@ -703,7 +779,7 @@ function zoneChipList(plan, zone) {
   const chips = [
     `<span class="pill ${modeClass(plan.profile)}">${esc(modeLabel(plan.profile))}</span>`,
   ];
-  if (plan.apply_blocked === "on" || plan.apply_block_reason || String(primaryReason(plan)).toLowerCase().includes("window")) {
+  if (plan.apply_blocked === "on" || String(plan.apply_block_reason || "").toLowerCase() !== "none" || String(primaryReason(plan)).toLowerCase().includes("window")) {
     chips.push(`<span class="pill purple">${esc(compactReason(primaryReason(plan, zone)))}</span>`);
   }
   if (plan.is_boost_active) chips.push(`<span class="pill pink">Boost aktiv</span>`);
@@ -722,7 +798,7 @@ function consequenceItems(hass, app) {
     const plan = zonePlan(hass, zone, app);
     return `<div class="reason">
       ${icon(zoneIcon(zone))}
-      <div><small>${esc(meta.label)}</small><b>${esc(modeLabel(plan.profile))} auf ${esc(tempText(plan.target_temperature))}</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
+      <div><small>${esc(meta.label)} · ${esc(primaryConsequence(plan, zone))}</small><b>${esc(modeLabel(plan.profile))} auf ${esc(tempText(plan.target_temperature))}</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
     </div>`;
   }).join("") + `<div class="reason">
     ${icon("mdi:fan")}
@@ -734,26 +810,49 @@ function overviewSentence(hass, app) {
   const living = zonePlan(hass, "living_room", app);
   const kitchen = zonePlan(hass, "kitchen", app);
   const bathroom = zonePlan(hass, "bathroom", app);
+  const fan = bathroomDebug(hass, app).fan_plan || {};
   const weather = weatherLabel(hass, app);
+  const windowStatus = livingAreaWindowStatus(hass);
   const livingReason = String(primaryReason(living)).toLowerCase();
-  const parts = [`Aktuell <span class="accent">${esc(weather)}</span> draußen`];
-  if (livingReason.includes("window") || livingReason.includes("fenster") || living.apply_blocked === "on") {
-    parts.push(`Fensterstatus <span class="pink">begrenzt</span> Wohnzimmer`);
-  } else {
-    parts.push(`Wohnzimmer bleibt in <span class="purple">${esc(modeLabel(living.profile))}</span>`);
+  const kitchenReason = String(primaryReason(kitchen)).toLowerCase();
+  if (windowStatus.blocked || livingReason.includes("window") || kitchenReason.includes("window")) {
+    return `Aktuell <span class="accent">${esc(weather)}</span> draußen. <span class="pink">${esc(windowStatus.label)}</span>: Wohnbereich heizt nicht. Bad hält <span class="accent">${esc(modeLabel(bathroom.profile))}</span>, Lüfter ist ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}.`;
   }
-  parts.push(`Küche bleibt im <span class="purple">${esc(modeLabel(kitchen.profile))}</span>`);
-  parts.push(`Bad auf <span class="accent">${esc(modeLabel(bathroom.profile))}</span>`);
-  return `${parts.slice(0, 3).join(", ")}. ${parts[3]}.`;
+  if (kitchenReason.includes("summer")) {
+    return `Aktuell <span class="accent">${esc(weather)}</span> draußen. Küche bleibt wegen Sommerregel im <span class="purple">${esc(modeLabel(kitchen.profile))}</span>. Bad hält <span class="accent">${esc(modeLabel(bathroom.profile))}</span>, Lüfter ist ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}.`;
+  }
+  return `Aktuell <span class="accent">${esc(weather)}</span> draußen. Wohnzimmer ist <span class="purple">${esc(modeLabel(living.profile))}</span>, Küche ist <span class="purple">${esc(modeLabel(kitchen.profile))}</span>. Bad hält <span class="accent">${esc(modeLabel(bathroom.profile))}</span>.`;
+}
+
+function primaryConsequence(plan, zone) {
+  const reason = String(primaryReason(plan, zone)).toLowerCase();
+  if (reason.includes("window")) return "Heizen blockiert";
+  if (reason.includes("summer") || String(plan.profile).toLowerCase().includes("spar")) return "Sparmodus aktiv";
+  if (String(plan.profile).toLowerCase().includes("grund")) return "Grundwärme aktiv";
+  return modeLabel(plan.profile);
+}
+
+function weatherChip(hass, app) {
+  const inputs = effectiveInputs(hass, app);
+  const weather = displayValue(inputs.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "Wetter"));
+  const windowStatus = livingAreaWindowStatus(hass);
+  if (windowStatus.blocked) {
+    return `${weather} · ${windowStatus.label}`;
+  }
+  return weather;
 }
 
 function policyConsequence(hass, app) {
   const apply = stateText(hass, ENTITIES.applyActive);
   const ready = stateText(hass, ENTITIES.applyReady);
   const status = stateText(hass, ENTITIES.applyStatus);
+  const windowStatus = livingAreaWindowStatus(hass);
+  if (windowStatus.blocked) {
+    return "Fenster oder Tür sind offen/gekippt. Die Policy blockiert Heizen im offenen Wohnbereich und hält Bad/Grundwärme separat.";
+  }
   if (apply === "on") return `Auto-Apply ist aktiv. Die Policy kann Änderungen anwenden, sobald Ready ${ready} ist.`;
   if (status !== "missing") return `Auto-Apply ist aus. Änderungen bleiben als Plan sichtbar; manuelles Anwenden oder Dry Run ist möglich.`;
-  return "Die Policy zeigt aktuell die geplante Wärmeabgabe, ohne Backend-Regeln umzubauen.";
+  return "Die Policy zeigt aktuell die geplante Wärmeabgabe.";
 }
 
 function miniStat(iconName, value, label) {
@@ -780,20 +879,20 @@ function renderOverview(hass, app) {
           ${statusChip(loaded ? "ok" : "missing", loaded ? "Integration geladen" : "Integration fehlt")}
         </div>
       </div>
-      <div class="hero-side"><div class="cloud-temp">${esc(tempText(stateText(hass, ENTITIES.effectiveTemp)))}</div></div>
+      <div class="hero-side"><div><div class="cloud-temp">${esc(tempText(stateText(hass, ENTITIES.effectiveTemp)))}</div><span class="weather-chip">${esc(weatherChip(hass, app))}</span></div></div>
     </section>
 
     <div class="section grid cols-4">
       ${miniStat("mdi:home-check-outline", "3", "Räume im Plan")}
       ${miniStat("mdi:thermometer-lines", tempText(stateText(hass, ENTITIES.effectiveTemp)), "Effektive Außentemperatur")}
-      ${miniStat("mdi:white-balance-sunny", displayValue(inputs.weather_condition ?? br.weather_condition ?? "Wetter"), "Außenbedingung")}
+      ${miniStat("mdi:white-balance-sunny", weatherChip(hass, app), "Außenbedingung")}
       ${miniStat("mdi:play-circle-outline", displayValue(stateText(hass, ENTITIES.lastApply), "Nie"), "Letzter Apply")}
     </div>
 
     <div class="section grid cols-4">
       <div class="card">
         <h2>${icon("mdi:account-clock-outline")}Kontext</h2>
-        ${kv("Anwesenheit", contextSnapshot(hass, app).presence_household?.value ?? "nicht geladen")}
+        ${kv("Anwesenheit", presenceSummary(hass, app))}
         ${kv("Tagesstatus", contextSnapshot(hass, app).day_context?.value ?? "nicht geladen")}
         ${kv("Bio-Status", contextSnapshot(hass, app).bio_state?.value ?? "nicht geladen")}
       </div>
@@ -878,8 +977,8 @@ function renderZones(hass, app) {
       </div>
       <div class="chip-row">${zoneChipList(plan, zone)}${zone === "bathroom" ? `<span class="pill blue">Lüfter: ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</span>` : ""}</div>
       <div class="room-facts">
-        ${roomFact("Aktuelle Temperatur", tempText(plan.current_temperature ?? plan.room_temperature ?? attr(hass, meta.target, "current_temperature", "unbekannt")))}
-        ${roomFact("Heizung", plan.apply_blocked === "on" ? "begrenzt" : modeLabel(plan.profile))}
+        ${roomFact("Aktuelle Temperatur", zoneRoomTemperature(hass, app, zone))}
+        ${roomFact("Konsequenz", primaryConsequence(plan, zone))}
         ${roomFact("Letztes Update", displayValue(plan.updated_at ?? stateObj(hass, meta.mode)?.last_changed ?? "unbekannt"))}
       </div>
       <details class="expert section">
@@ -899,7 +998,7 @@ function renderZones(hass, app) {
       <div class="hero-icon">${icon("mdi:check-circle-outline")}</div>
       <div>
         <h2>Aktive Raumentscheidungen</h2>
-        <p class="muted">Die Policy fasst Wohnzimmer, Küche und Bad zusammen. Bad ist als Raum integriert; Lüfter- und Feuchtedetails liegen im Expertenbereich.</p>
+        <p class="muted">Die Policy fasst Wohnzimmer, Küche und Bad zusammen. Details zu Lüfter, Feuchte und Sensoren findest du in den aufklappbaren Raumdetails und in der Diagnose.</p>
       </div>
       <div class="chip-row">
         <span class="pill blue">3 Räume aktiv</span>
@@ -968,35 +1067,91 @@ function renderThresholds(hass, app) {
   const dirtyKeys = app?._dirtyTuningKeys(data) || [];
   const error = app?._tuningError || "";
   const activeBand = String(current.active_month_band ?? current.band ?? "").toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
-  const seasonCards = THRESHOLD_BANDS.map(([band, label, months]) => {
+  const tab = app?._tuningTab || "season";
+  const tabs = [
+    ["season", "Saisonmatrix"],
+    ["rooms", "Räume & Setpoints"],
+    ["outside", "Außen & Teff"],
+    ["boost", "Boost & Apply"],
+    ["bath", "Bad & Lüfter"],
+    ["advanced", "Erweitert"],
+  ].map(([id, label]) => `<button data-tuning-tab="${esc(id)}" class="${tab === id ? "active" : ""}">${esc(label)}</button>`).join("");
+  const groupCard = (sectionName) => {
+    const group = TUNING_GROUPS.find(([section]) => section === sectionName);
+    if (!group) return "";
+    const [section, title, iconName, fields] = group;
+    return `<div class="card">
+      <div class="toolbar">
+        <h2>${icon(iconName)}${esc(title)}</h2>
+        <button class="action" data-action="tuning-reset-section-${esc(section)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Zurücksetzen</span></button>
+      </div>
+      ${fieldRows(app, data, fields)}
+    </div>`;
+  };
+  const seasonRows = THRESHOLD_BANDS.map(([band, label, months]) => {
     const bandData = data.threshold_bands?.[band] || {};
     const keys = bandData.keys || {};
     const comfortDisabled = tuningDraftValue(app, data, keys.comfort_disabled) === true || tuningDraftValue(app, data, keys.comfort_disabled) === "true";
     const boostDisabled = tuningDraftValue(app, data, keys.boost_disabled) === true || tuningDraftValue(app, data, keys.boost_disabled) === "true";
     const rowDirty = Object.values(keys).some((key) => isDirty(app, data, key));
     const active = activeBand === band;
-    return `<div class="season-card ${active ? "active" : ""} ${rowDirty ? "dirty" : ""}">
-      <div class="toolbar">
-        <div><h3>${icon(active ? "mdi:check-circle-outline" : "mdi:calendar-range")} ${esc(label)}</h3><small>${esc(months)}</small></div>
-        ${active ? `<span class="pill purple">Aktiv</span>` : ""}
-      </div>
-      <div class="season-values">
-        <label><span>Aus ab</span>${numberInput(app, data, keys.off_threshold)}</label>
-        <label><span>Komfort bis</span>${numberInput(app, data, keys.comfort_threshold, comfortDisabled)}</label>
-        <label><span>Boost bis</span>${numberInput(app, data, keys.boost_threshold, boostDisabled)}</label>
-        <label><span>Komfort aus</span>${boolInput(app, data, keys.comfort_disabled)}</label>
-        <label><span>Boost aus</span>${boolInput(app, data, keys.boost_disabled)}</label>
-      </div>
-      <button class="action" data-action="tuning-reset-band-${esc(band)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Band zurücksetzen</span></button>
-    </div>`;
+    const sources = Object.values(keys).map((key) => data.sources?.[key]).filter(Boolean);
+    return `<tr class="${active ? "active" : ""} ${rowDirty ? "dirty" : ""}">
+      <td><b>${esc(label)}</b>${active ? `<br><span class="pill purple">Aktiv</span>` : ""}</td>
+      <td>${esc(months)}</td>
+      <td>${numberInput(app, data, keys.off_threshold)}</td>
+      <td>${comfortDisabled ? `<span class="muted">deaktiviert</span>` : numberInput(app, data, keys.comfort_threshold)}</td>
+      <td>${boostDisabled ? `<span class="muted">deaktiviert</span>` : numberInput(app, data, keys.boost_threshold)}</td>
+      <td>${boolInput(app, data, keys.comfort_disabled)}</td>
+      <td>${boolInput(app, data, keys.boost_disabled)}</td>
+      <td>${[...new Set(sources)].map(sourcePill).join(" ") || sourcePill("default")}</td>
+      <td><button class="action" data-action="tuning-reset-band-${esc(band)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Reset</span></button></td>
+    </tr>`;
   }).join("");
-  const cards = TUNING_GROUPS.map(([section, title, iconName, fields]) => `<div class="card">
-    <div class="toolbar">
-      <h2>${icon(iconName)}${esc(title)}</h2>
-      <button class="action" data-action="tuning-reset-section-${esc(section)}" ${resetAvailable ? "" : "disabled"}>${icon("mdi:restore")}<span>Zurücksetzen</span></button>
+  const seasonPanel = `<div class="card">
+    <h2>${icon("mdi:calendar-range")}Saisonmatrix</h2>
+    <div class="table-wrap">
+      <table class="matrix">
+        <thead><tr><th>Saison/Band</th><th>Monate</th><th>Aus ab</th><th>Komfort bis</th><th>Boost bis</th><th>Komfort aus</th><th>Boost aus</th><th>Quelle</th><th>Reset</th></tr></thead>
+        <tbody>${seasonRows}</tbody>
+      </table>
     </div>
-    ${fieldRows(app, data, fields)}
-  </div>`).join("");
+  </div>`;
+  const roomsPanel = `<div class="grid cols-2">
+    ${groupCard("setpoints")}
+    <div class="card">
+      <h2>${icon("mdi:home-thermometer-outline")}Raumkontext</h2>
+      ${kv("Wohnzimmer", `Basis aus gemeinsamen Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "living_room")}`)}
+      ${kv("Küche", `Basis aus gemeinsamen Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "kitchen")}`)}
+      ${kv("Bad", `Grundwärme/Komfort/Schutz über Bad-Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "bathroom")}`)}
+      <p class="muted">Wohnzimmer und Küche teilen sich die Wohnbereich-Fensterlogik. Bad-spezifische Feuchte- und Lüfterwerte liegen im Tab Bad & Lüfter.</p>
+    </div>
+    <div class="card">${fieldRows(app, data, [
+      ["bath_setpoint_protection", "Bad Schutz"],
+      ["bath_setpoint_ground", "Bad Grundwärme"],
+      ["bath_setpoint_comfort", "Bad Komfort"],
+    ])}</div>
+  </div>`;
+  const outsidePanel = `<div class="grid cols-2">${groupCard("effective")}${renderEffective(hass, app)}</div>`;
+  const boostPanel = `<div class="grid cols-2">${groupCard("boost")}${groupCard("apply")}</div>`;
+  const bathFields = [
+    ["bath_comfort_suppression_teff", "Komfort bis Teff"],
+    ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
+    ["bath_humidity_acute_rise_threshold", "Akut-Anstieg 5 Min."],
+    ["bath_humidity_end_threshold", "End-Luftfeuchte"],
+    ["bath_dewpoint_acute_threshold", "Akut-Taupunkt"],
+    ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
+    ["bath_ah_delta_afterrun_off", "Nachlauf Ende AH-Delta"],
+    ["bath_ah_delta_stoss", "Stoßlüftung AH-Delta"],
+    ["bath_fan_heat_coordination_delta", "Heiz-/Lüfter-Delta"],
+    ["bath_fan_acute_max_minutes", "Akut max. Minuten"],
+    ["bath_fan_afterrun_max_minutes", "Nachlauf max. Minuten"],
+    ["bath_fan_stoss_interval_hours", "Stoßlüftung Intervall"],
+    ["bath_fan_stoss_duration_minutes", "Stoßlüftung Dauer"],
+  ];
+  const bathPanel = `<div class="grid cols-2"><div class="card"><h2>${icon("mdi:fan")}Bad & Lüfter</h2>${fieldRows(app, data, bathFields)}</div><div class="card"><h2>${icon("mdi:bathtub-outline")}Bad Status</h2>${kv("Badmodus", modeLabel(zonePlan(hass, "bathroom", app).profile))}${kv("Lüfter", modeLabel(bathroomDebug(hass, app).fan_plan?.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}${kv("Grund", compactReason(primaryReason(zonePlan(hass, "bathroom", app), "bathroom")))}</div></div>`;
+  const advancedPanel = `<div class="grid cols-2">${groupCard("setpoints")}${groupCard("effective")}${groupCard("boost")}${groupCard("apply")}${groupCard("bath")}</div>`;
+  const panels = { season: seasonPanel, rooms: roomsPanel, outside: outsidePanel, boost: boostPanel, bath: bathPanel, advanced: advancedPanel };
   return `${error ? `<div class="error-box">${esc(error)}</div>` : ""}
   <div class="card">
     <div class="toolbar">
@@ -1016,11 +1171,8 @@ function renderThresholds(hass, app) {
       ${miniStat("mdi:bathtub-outline", tempText(data.values?.bath_setpoint_ground ?? "missing"), "Bad Grundwärme")}
     </div>
   </div>
-  <div class="section card">
-    <h2>${icon("mdi:calendar-range")}Saison-Übersicht</h2>
-    <div class="season-grid">${seasonCards}</div>
-  </div>
-  <div class="section tuning-grid">${cards}</div>
+  <div class="section segmented">${tabs}</div>
+  <div class="section">${panels[tab] || seasonPanel}</div>
   <div class="section info-band">
     ${icon("mdi:information-outline")}
     <div class="actions">
@@ -1165,7 +1317,7 @@ function renderApply(hass, app) {
 }
 
 function renderInputs(hass, app) {
-  const inputs = endpointDebug(app).inputs || debugPayload(hass, app).inputs || [];
+  const inputs = inputItems(hass, app);
   if (!inputs.length) {
     return debugEndpointNotice(app);
   }
@@ -1182,6 +1334,134 @@ function renderInputs(hass, app) {
       ${rows || `<tr><td colspan="6" class="muted">not exposed yet</td></tr>`}
     </tbody></table>
   </div>`;
+}
+
+function importantInputIssues(hass, app) {
+  return inputItems(hass, app)
+    .filter((item) => !["ok", undefined, null].includes(item.status))
+    .map((item) => `${item.key}: ${item.status} (${item.entity_id || "keine Entity"})`);
+}
+
+function diagnosticPackage(hass, app, format = "markdown") {
+  const full = endpointDebug(app);
+  const payload = debugPayload(hass, app);
+  const planMap = plans(hass, app);
+  const perf = full.performance || payload.performance || {};
+  const effective = effectiveBreakdown(hass, app);
+  const effectiveInputsData = effectiveInputs(hass, app);
+  const context = contextSnapshot(hass, app);
+  const bath = bathroomDebug(hass, app);
+  const fan = bath.fan_plan || {};
+  const status = {
+    timestamp: full.timestamp || new Date().toISOString(),
+    integration_version: "unknown",
+    system_ready: payload.system_ready ?? stateText(hass, ENTITIES.systemReady),
+    auto_apply: payload.apply_active ?? stateText(hass, ENTITIES.applyActive),
+    apply_status: stateText(hass, ENTITIES.applyStatus),
+    effective_outdoor_temperature: effective.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp),
+    weather_resolver: {
+      real_temperature: effectiveInputsData.real_temperature,
+      forecast_temperature: effectiveInputsData.forecast_temperature,
+      feels_like_temperature: effectiveInputsData.feels_like_temperature,
+      weather_condition: effectiveInputsData.weather_condition,
+      forecast_reason: effectiveInputsData.forecast_resolution?.reason,
+      feels_like_reason: effectiveInputsData.feels_like_resolution?.reason,
+    },
+    context: {
+      presence_personal: context.presence_personal?.value,
+      presence_household: context.presence_household?.value,
+      presence_band: context.presence_band?.value,
+      day_state: context.day_state?.value,
+      bio_state: context.bio_state?.value,
+    },
+    plans: Object.fromEntries(Object.entries(planMap).map(([zone, plan]) => [zone, {
+      profile: plan.profile,
+      target_temperature: plan.target_temperature,
+      policy_reason: plan.reason,
+      apply_blocker: plan.apply_block_reason,
+      decision_path: plan.decision_path,
+      plan_hash: plan.plan_hash,
+      policy_config_hash: plan.policy_config_hash,
+    }])),
+    bathroom_fan: {
+      mode: fan.mode,
+      reason: fan.reason || fan.fan_reason,
+      target_switch_state: fan.target_switch_state,
+      apply_blocker: fan.apply_block_reason,
+      plan_hash: fan.plan_hash,
+    },
+    performance: {
+      recalculate_count: perf.recalculate_count,
+      last_recalculate_reason: perf.last_recalculate_reason,
+      forecast_cache: {
+        hit: perf.weather_forecast_cache_hit,
+        age: perf.weather_forecast_cache_age,
+        last_fetch_at: perf.weather_forecast_last_fetch_at,
+      },
+      entity_publish_changed_count: perf.entity_publish_changed_count,
+      entity_publish_skipped_count: perf.entity_publish_skipped_count,
+    },
+    last_apply: payload.last_apply_result || full.last_apply_result || null,
+    input_issues: importantInputIssues(hass, app),
+  };
+  if (format === "json") return JSON.stringify(status, null, 2);
+  const lineForZone = (zone, label) => {
+    const plan = status.plans[zone] || {};
+    return `- ${label}: ${modeLabel(plan.profile)} ${tempText(plan.target_temperature)}, Grund: ${compactReason(plan.policy_reason, zone)}`;
+  };
+  return `# Benni Climate Policy Diagnosepaket
+
+## Status
+- Zeitstempel: ${status.timestamp}
+- Integration Version: ${status.integration_version}
+- System ready: ${status.system_ready}
+- Auto apply: ${status.auto_apply}
+- Apply status: ${status.apply_status}
+- Effective outdoor temp: ${tempText(status.effective_outdoor_temperature)}
+
+## Wetter / Teff
+- Real: ${tempText(status.weather_resolver.real_temperature)}
+- Forecast +3h: ${tempText(status.weather_resolver.forecast_temperature)}
+- Feels-like: ${tempText(status.weather_resolver.feels_like_temperature)}
+- Zustand: ${displayValue(status.weather_resolver.weather_condition)}
+- Forecast reason: ${displayValue(status.weather_resolver.forecast_reason)}
+
+## Kontext
+- Anwesenheit: ${presenceSummary(hass, app)}
+- Presence personal: ${displayValue(status.context.presence_personal)}
+- Presence household: ${displayValue(status.context.presence_household)}
+- Presence band: ${displayValue(status.context.presence_band)}
+- Bio: ${displayValue(status.context.bio_state)}
+- Day state: ${displayValue(status.context.day_state)}
+
+## Aktuelle Entscheidung
+${lineForZone("living_room", "Wohnzimmer")}
+${lineForZone("kitchen", "Küche")}
+${lineForZone("bathroom", "Bad")}
+- Badlüfter: ${modeLabel(status.bathroom_fan.mode)}, Grund: ${compactReason(status.bathroom_fan.reason || status.bathroom_fan.apply_blocker)}
+
+## Hash-Basis
+- Living plan hash: ${displayValue(status.plans.living_room?.plan_hash)}
+- Kitchen plan hash: ${displayValue(status.plans.kitchen?.plan_hash)}
+- Bathroom plan hash: ${displayValue(status.plans.bathroom?.plan_hash)}
+- Policy config hash: ${displayValue(status.plans.living_room?.policy_config_hash || status.plans.bathroom?.policy_config_hash)}
+
+## Performance
+- recalculate_count: ${displayValue(status.performance.recalculate_count)}
+- last_recalculate_reason: ${displayValue(status.performance.last_recalculate_reason)}
+- forecast_cache_hit: ${displayValue(status.performance.forecast_cache.hit)}
+- forecast_cache_age: ${displayValue(status.performance.forecast_cache.age)}
+- entity_publish_changed_count: ${displayValue(status.performance.entity_publish_changed_count)}
+- entity_publish_skipped_count: ${displayValue(status.performance.entity_publish_skipped_count)}
+
+## Letzter Apply / Dry Run
+- Status: ${displayValue(status.last_apply?.status, "kein Apply")}
+- Reason: ${displayValue(status.last_apply?.reason, "kein Apply")}
+- Actions: ${Array.isArray(status.last_apply?.actions) ? status.last_apply.actions.length : 0}
+
+## Input-Status kompakt
+${status.input_issues.length ? status.input_issues.map((item) => `- ${item}`).join("\n") : "- Keine missing/unavailable/conflict Inputs im Snapshot."}
+`;
 }
 
 function renderDebug(hass, app) {
@@ -1203,11 +1483,23 @@ function renderDebug(hass, app) {
     || Object.values(planMap).map((p) => p.apply_block_reason).filter(Boolean).join(", ")
     || "none";
   const perf = full.performance || payload.performance || {};
+  const packageText = app?._diagnosticsPackage || "";
   return `<div class="grid cols-4">
     ${miniStat("mdi:refresh", perf.recalculate_count ?? dbg.recalculate_count ?? "unbekannt", "Recalculate Count")}
     ${miniStat("mdi:lightning-bolt-outline", payload.last_recalculate_reason ?? dbg.last_recalculate_reason ?? skipReason, "Letzter Grund")}
     ${miniStat("mdi:cloud-check-outline", payload.forecast_cache_status ?? dbg.forecast_cache_status ?? "unbekannt", "Forecast-Cache")}
     ${miniStat("mdi:publish", payload.publish_count_24h ?? dbg.publish_count_24h ?? "unbekannt", "Publish 24h")}
+  </div>
+  <div class="section card">
+    <h2>${icon("mdi:clipboard-text-outline")}Diagnosepaket</h2>
+    <p class="muted">Kompaktes Copy/Paste-Paket für Codex/Claude ohne große Forecast-Listen oder volatile Massendaten.</p>
+    <div class="actions">
+      ${actionButton("diagnostics-copy", "Diagnosepaket kopieren", "mdi:content-copy", false, true)}
+      ${actionButton("diagnostics-show", "Diagnosepaket anzeigen", "mdi:eye-outline", false, true)}
+      ${actionButton("diagnostics-copy-json", "Als JSON kopieren", "mdi:code-json", false, true)}
+    </div>
+    ${packageText ? `<textarea class="pre mono diagnostics-package" readonly>${esc(packageText)}</textarea>` : ""}
+    ${jsonDetails("Diagnosepaket JSON anzeigen", JSON.parse(diagnosticPackage(hass, app, "json")))}
   </div>
   <div class="section grid cols-2">
     <div class="card"><h2>${icon("mdi:speedometer")}Performance</h2>
@@ -1260,6 +1552,9 @@ class BcpApp extends HTMLElement {
     this._tuningDraft = null;
     this._tuningBase = null;
     this._tuningError = "";
+    this._tuningTab = "season";
+    this._diagnosticsPackage = "";
+    this._diagnosticsPackageFormat = "markdown";
     this._debugPayload = null;
     this._debugError = "";
     this._debugFetchInFlight = false;
@@ -1382,6 +1677,12 @@ class BcpApp extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-tuning-key]").forEach((input) => {
       input.addEventListener("input", () => this._handleTuningInput(input));
       input.addEventListener("change", () => this._handleTuningInput(input));
+    });
+    this.shadowRoot.querySelectorAll("[data-tuning-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._tuningTab = btn.dataset.tuningTab;
+        this._render();
+      });
     });
   }
 
@@ -1518,6 +1819,23 @@ class BcpApp extends HTMLElement {
         this._tuningDraft = null;
         this._tuningBase = null;
         this._toast("Band zurückgesetzt");
+      } else if (action === "diagnostics-show") {
+        this._diagnosticsPackageFormat = "markdown";
+        this._diagnosticsPackage = diagnosticPackage(this._hass, this, "markdown");
+        this._scheduleRender();
+        this._toast("Diagnosepaket angezeigt");
+      } else if (action === "diagnostics-copy" || action === "diagnostics-copy-json") {
+        const format = action === "diagnostics-copy-json" ? "json" : "markdown";
+        const text = diagnosticPackage(this._hass, this, format);
+        this._diagnosticsPackageFormat = format;
+        this._diagnosticsPackage = text;
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          this._toast("Diagnosepaket kopiert");
+        } else {
+          this._toast("Clipboard nicht verfügbar, Paket wird angezeigt");
+        }
+        this._scheduleRender();
       } else if (action.startsWith("dry-run-")) {
         await this._hass.callService(DOMAIN, "dry_run", { zone: action.replace("dry-run-", "") });
         await this._fetchDebugPayload(true);
@@ -1525,7 +1843,7 @@ class BcpApp extends HTMLElement {
         await this._hass.callService(DOMAIN, "apply_now", { zone: action.replace("apply-", "") });
         await this._fetchDebugPayload(true);
       }
-      if (!action.startsWith("tuning-")) this._toast("Service ausgelöst");
+      if (!action.startsWith("tuning-") && !action.startsWith("diagnostics-")) this._toast("Service ausgelöst");
     } catch (err) {
       this._tuningError = err.message || String(err);
       this._scheduleRender();

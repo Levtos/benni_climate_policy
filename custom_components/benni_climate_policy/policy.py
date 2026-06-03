@@ -30,6 +30,9 @@ LUX_REFERENCE = 30000.0
 FEELS_LIKE_DAMPING = 0.5
 FORECAST_WEIGHT = 0.3
 BOOST_ACTIVATION_DELTA = 1.5
+NIGHT_RAMP_LATE_EVENING_TARGET = 23.0
+NIGHT_RAMP_EARLY_NIGHT_TARGET = 22.0
+NIGHT_RAMP_LATE_NIGHT_TARGET = 21.0
 
 OPT_SETPOINT_OFF = "setpoint_off"
 OPT_SETPOINT_SPAR = "setpoint_spar"
@@ -385,6 +388,16 @@ def setpoint_for(profile: str, effective_temperature: float | None, tuning: Poli
     return target
 
 
+def night_ramp_target(day_state: str | None) -> float | None:
+    if day_state == "late_evening":
+        return NIGHT_RAMP_LATE_EVENING_TARGET
+    if day_state == "early_night":
+        return NIGHT_RAMP_EARLY_NIGHT_TARGET
+    if day_state == "late_night":
+        return NIGHT_RAMP_LATE_NIGHT_TARGET
+    return None
+
+
 def policy_visibility_snapshot(
     month: int,
     effective_temperature: float | None,
@@ -496,12 +509,13 @@ def decide_zone(
 
     profile = "spar"
     reason = "threshold_profile"
+    target_override: float | None = None
 
     if bio in ("sleep", "waking"):
         profile = "off"
         reason = f"bio_{bio}_forces_off"
         path.append(reason)
-    elif any(w.blocks_heating for w in zone_input.windows):
+    elif any(w.blocks_heating_at(now, immediate=day_state in ("early_night", "late_night")) for w in zone_input.windows):
         profile = "off"
         reason = "window_blocks_heating"
         path.append(reason)
@@ -522,6 +536,16 @@ def decide_zone(
         elif activity == "free_time" and day_state == "early_night" and month not in SUMMER_MONTHS:
             profile = "komfort"
             reason = "free_time_early_night_holds_comfort"
+            target_override = NIGHT_RAMP_EARLY_NIGHT_TARGET
+            path.append(reason)
+        elif day_state in ("late_evening", "early_night", "late_night", "night") and month not in SUMMER_MONTHS:
+            if day_state == "night":
+                profile = "spar"
+                reason = "night_hard_spar"
+            else:
+                target_override = night_ramp_target(day_state)
+                profile = "spar" if target_override == NIGHT_RAMP_LATE_NIGHT_TARGET else "komfort"
+                reason = f"night_temperature_ramp_{day_state}"
             path.append(reason)
         else:
             thresholds = threshold_for_month_config(month, tuning)
@@ -558,7 +582,7 @@ def decide_zone(
             reason = "presence_preheat_caps_to_spar"
             path.append(reason)
 
-    target = setpoint_for(profile, teff, tuning)
+    target = target_override if target_override is not None else setpoint_for(profile, teff, tuning)
     if not zone_input.thermostat_entity_id:
         blockers.append("thermostat_entity_missing")
 
