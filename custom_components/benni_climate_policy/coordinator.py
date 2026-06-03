@@ -10,7 +10,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .apply_engine import ApplyEngine, ApplyGateState
@@ -66,9 +66,10 @@ from .models import (
 from .options import apply_cooldown_seconds_from_config
 from .policy import decide_zone, effective_outdoor_temperature, empty_context, policy_tuning_from_options, policy_visibility_snapshot
 from .tuning_options import tuning_options_snapshot, validated_options_update
-from .weather_resolver import WeatherResolution, WeatherResolver
+from .weather_resolver import DEFAULT_FORECAST_CACHE_TTL_SECONDS, ForecastCache, WeatherResolution, WeatherResolver
 
 _LOGGER = logging.getLogger(__name__)
+EVALUATE_DEBOUNCE_SECONDS = 2
 
 
 def _float(value: str | None) -> float | None:
@@ -126,13 +127,20 @@ class ClimatePolicyCoordinator:
         self.entry = entry
         self.apply_engine = ApplyEngine(hass)
         self._unsub: list[CALLBACK_TYPE] = []
+        self._evaluate_debounce_unsub: CALLBACK_TYPE | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._ha_started = False
         self._started_at = time.monotonic()
+        self._weather_forecast_cache: ForecastCache = {}
         self.decision: ClimateDecision | None = None
         self.weather_resolution: WeatherResolution | None = None
         self.bathroom_fan_plan: BathroomFanPlan | None = None
         self.last_apply_result: ApplyResult | None = None
+        self.last_recalculate_at: datetime | None = None
+        self.recalculate_count = 0
+        self.last_recalculate_reason = "never"
+        self.entity_publish_skipped_count = 0
+        self.entity_publish_changed_count = 0
         apply_zones = (*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan")
         self.last_applied_hash: dict[str, str | None] = {zone: None for zone in apply_zones}
         self.last_apply_at: dict[str, datetime | None] = {zone: None for zone in apply_zones}
@@ -180,7 +188,8 @@ class ClimatePolicyCoordinator:
     @callback
     def async_start(self) -> None:
         if self.hass.is_running:
-            self._on_started(None)
+            self._ha_started = True
+            self._started_at = time.monotonic()
         else:
             self._unsub.append(self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._on_started))
 
@@ -191,6 +200,9 @@ class ClimatePolicyCoordinator:
 
     @callback
     def async_stop(self) -> None:
+        if self._evaluate_debounce_unsub:
+            self._evaluate_debounce_unsub()
+            self._evaluate_debounce_unsub = None
         for unsub in self._unsub:
             unsub()
         self._unsub.clear()
@@ -199,15 +211,34 @@ class ClimatePolicyCoordinator:
     def _on_started(self, _event) -> None:
         self._ha_started = True
         self._started_at = time.monotonic()
-        self.hass.async_create_task(self.async_evaluate(auto_apply=False))
+        self.hass.async_create_task(self.async_evaluate(auto_apply=False, reason="homeassistant_started"))
 
     @callback
     def _on_interval(self, _now) -> None:
-        self.hass.async_create_task(self.async_evaluate(auto_apply=True))
+        self.hass.async_create_task(self.async_evaluate(auto_apply=True, reason="interval_15m"))
 
     @callback
-    def _on_state_change(self, _event: Event) -> None:
-        self.hass.async_create_task(self.async_evaluate(auto_apply=True))
+    def _on_state_change(self, event: Event) -> None:
+        entity_id = event.data.get("entity_id", "unknown")
+        self._schedule_evaluate(auto_apply=True, reason=f"state_change:{entity_id}")
+
+    @callback
+    def _schedule_evaluate(self, *, auto_apply: bool, reason: str) -> None:
+        if self._evaluate_debounce_unsub:
+            self._evaluate_debounce_unsub()
+
+        @callback
+        def _run(_now) -> None:
+            self._evaluate_debounce_unsub = None
+            self.hass.async_create_task(self.async_evaluate(auto_apply=auto_apply, reason=reason))
+
+        self._evaluate_debounce_unsub = async_call_later(self.hass, EVALUATE_DEBOUNCE_SECONDS, _run)
+
+    def record_entity_publish(self, *, changed: bool) -> None:
+        if changed:
+            self.entity_publish_changed_count += 1
+        else:
+            self.entity_publish_skipped_count += 1
 
     def _state(self, key: str) -> str | None:
         entity_id = self.config.get(key)
@@ -301,13 +332,21 @@ class ClimatePolicyCoordinator:
     def manual_apply_possible(self) -> bool:
         return self.system_ready and self.startup_ready
 
-    async def async_evaluate(self, *, auto_apply: bool = False) -> ClimateDecision:
+    async def async_evaluate(self, *, auto_apply: bool = False, reason: str = "manual") -> ClimateDecision:
         now = dt_util.now()
+        self.recalculate_count += 1
+        self.last_recalculate_at = now
+        self.last_recalculate_reason = reason
         tuning = self.policy_tuning
         bath_tuning = self.bath_tuning
         context = ContextResolver(self.hass, self.config).resolve()
         real_temperature = self._float_state(CONF_OUTDOOR_TEMPERATURE)
-        self.weather_resolution = await WeatherResolver(self.hass, self.config).async_resolve(
+        self.weather_resolution = await WeatherResolver(
+            self.hass,
+            self.config,
+            forecast_cache=self._weather_forecast_cache,
+            forecast_cache_ttl_seconds=DEFAULT_FORECAST_CACHE_TTL_SECONDS,
+        ).async_resolve(
             real_temperature=real_temperature,
             now=now,
         )
@@ -391,7 +430,7 @@ class ClimatePolicyCoordinator:
             self.entry,
             options={**self.entry.options, CONF_APPLY_ACTIVE: bool(value)},
         )
-        await self.async_evaluate(auto_apply=bool(value))
+        await self.async_evaluate(auto_apply=bool(value), reason="apply_active_changed")
 
     async def async_update_options(
         self,
@@ -401,7 +440,7 @@ class ClimatePolicyCoordinator:
     ) -> None:
         new_options = validated_options_update(self.entry.options, updates or {}, reset_keys=reset_keys)
         self.hass.config_entries.async_update_entry(self.entry, options=new_options)
-        await self.async_evaluate(auto_apply=False)
+        await self.async_evaluate(auto_apply=False, reason="options_updated")
 
     async def async_apply(
         self,
@@ -411,7 +450,7 @@ class ClimatePolicyCoordinator:
         dry_run: bool,
     ) -> ApplyResult:
         if self.decision is None:
-            await self.async_evaluate(auto_apply=False)
+            await self.async_evaluate(auto_apply=False, reason="apply_without_decision")
         decision = self.decision
         if decision is None:
             self.last_apply_result = ApplyResult("error", "no_decision", [])
@@ -531,6 +570,7 @@ class ClimatePolicyCoordinator:
             else None
         )
         thresholds = policy_visibility_snapshot(now.month, effective_temperature, self.policy_tuning)
+        forecast_diag = self.weather_resolution.forecast.as_dict() if self.weather_resolution else {}
         return {
             "system_ready": self.system_ready,
             "apply_active": self.apply_active,
@@ -561,5 +601,17 @@ class ClimatePolicyCoordinator:
             "effective_inputs": self.effective_input_snapshot(),
             "bathroom": self.bathroom_debug(),
             "inputs": self.input_snapshot(),
+            "performance": {
+                "last_recalculate_at": self.last_recalculate_at.isoformat() if self.last_recalculate_at else None,
+                "recalculate_count": self.recalculate_count,
+                "last_recalculate_reason": self.last_recalculate_reason,
+                "evaluate_debounce_seconds": EVALUATE_DEBOUNCE_SECONDS,
+                "weather_forecast_cache_ttl_seconds": DEFAULT_FORECAST_CACHE_TTL_SECONDS,
+                "weather_forecast_last_fetch_at": forecast_diag.get("last_fetch_at"),
+                "weather_forecast_cache_age": forecast_diag.get("cache_age_seconds"),
+                "weather_forecast_cache_hit": forecast_diag.get("cache_hit"),
+                "entity_publish_skipped_count": self.entity_publish_skipped_count,
+                "entity_publish_changed_count": self.entity_publish_changed_count,
+            },
         }
 

@@ -12,6 +12,8 @@ from .const import CONF_FORECAST_TEMPERATURE, CONF_OUTDOOR_FEELS_LIKE, CONF_WEAT
 from .models import Quality
 
 AUTO_WEATHER_ENTITY = "weather.dwd_home"
+DEFAULT_FORECAST_CACHE_TTL_SECONDS = 15 * 60
+ForecastCache = dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,9 @@ class ForecastDiagnostics:
     wind_speed: float | None = None
     precipitation_probability: float | None = None
     fallback_used: bool = False
+    cache_hit: bool = False
+    cache_age_seconds: float | None = None
+    last_fetch_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +48,9 @@ class ForecastDiagnostics:
             "wind_speed": self.wind_speed,
             "precipitation_probability": self.precipitation_probability,
             "fallback_used": self.fallback_used,
+            "cache_hit": self.cache_hit,
+            "cache_age_seconds": self.cache_age_seconds,
+            "last_fetch_at": self.last_fetch_at,
         }
 
 
@@ -171,9 +179,18 @@ def fallback_feels_like(real_temperature: float | None) -> FeelsLikeDiagnostics:
 class WeatherResolver:
     """Resolve optional weather-derived effective temperature inputs."""
 
-    def __init__(self, hass: "HomeAssistant", config: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        hass: "HomeAssistant",
+        config: Mapping[str, Any],
+        *,
+        forecast_cache: ForecastCache | None = None,
+        forecast_cache_ttl_seconds: int = DEFAULT_FORECAST_CACHE_TTL_SECONDS,
+    ) -> None:
         self.hass = hass
         self.config = config
+        self.forecast_cache = forecast_cache if forecast_cache is not None else {}
+        self.forecast_cache_ttl_seconds = forecast_cache_ttl_seconds
 
     def _state(self, entity_id: str | None):
         return self.hass.states.get(entity_id) if entity_id else None
@@ -194,7 +211,7 @@ class WeatherResolver:
 
     async def async_resolve(self, *, real_temperature: float | None, now: datetime) -> WeatherResolution:
         target_time = now + timedelta(hours=3)
-        forecast = await self._resolve_forecast(real_temperature=real_temperature, target_time=target_time)
+        forecast = await self._resolve_forecast(real_temperature=real_temperature, target_time=target_time, now=now)
         feels_like = self._resolve_feels_like(real_temperature=real_temperature)
         return WeatherResolution(
             forecast_temperature=forecast.value,
@@ -204,7 +221,13 @@ class WeatherResolver:
             weather_entity_candidates=self._weather_entity_candidates(),
         )
 
-    async def _resolve_forecast(self, *, real_temperature: float | None, target_time: datetime) -> ForecastDiagnostics:
+    async def _resolve_forecast(
+        self,
+        *,
+        real_temperature: float | None,
+        target_time: datetime,
+        now: datetime,
+    ) -> ForecastDiagnostics:
         entity_id = self.config.get(CONF_FORECAST_TEMPERATURE)
         entity_value = self._float_state(entity_id)
         if entity_value is not None:
@@ -218,7 +241,7 @@ class WeatherResolver:
             )
 
         for weather_entity in self._weather_entity_candidates():
-            forecast = await self._resolve_weather_forecast(weather_entity, target_time)
+            forecast = await self._resolve_weather_forecast(weather_entity, target_time, now)
             if forecast.quality == "ok":
                 return forecast
 
@@ -227,7 +250,93 @@ class WeatherResolver:
             reason = "hourly_weather_forecast_missing"
         return fallback_forecast(real_temperature, target_time, reason)
 
-    async def _resolve_weather_forecast(self, weather_entity: str, target_time: datetime) -> ForecastDiagnostics:
+    def _forecast_from_list(
+        self,
+        forecasts: list[Mapping[str, Any]],
+        *,
+        weather_entity: str,
+        target_time: datetime,
+        reason: str,
+        cache_hit: bool,
+        cache_age_seconds: float | None,
+        last_fetch_at: str | None,
+    ) -> ForecastDiagnostics:
+        if not looks_hourly_forecast(forecasts):
+            return ForecastDiagnostics(
+                value=None,
+                source="weather_forecast",
+                quality="degraded",
+                reason="hourly_forecast_not_available",
+                weather_entity=weather_entity,
+                target_time=target_time.isoformat(),
+                cache_hit=cache_hit,
+                cache_age_seconds=cache_age_seconds,
+                last_fetch_at=last_fetch_at,
+            )
+        selected = select_hourly_forecast(forecasts, target_time)
+        if selected is None:
+            return ForecastDiagnostics(
+                value=None,
+                source="weather_forecast",
+                quality="degraded",
+                reason="no_hourly_forecast_temperature",
+                weather_entity=weather_entity,
+                target_time=target_time.isoformat(),
+                cache_hit=cache_hit,
+                cache_age_seconds=cache_age_seconds,
+                last_fetch_at=last_fetch_at,
+            )
+
+        return ForecastDiagnostics(
+            value=_float(selected.get("temperature")),
+            source="weather_forecast",
+            quality="ok",
+            reason=reason,
+            weather_entity=weather_entity,
+            target_time=target_time.isoformat(),
+            forecast_datetime=selected.get("datetime"),
+            condition=selected.get("condition"),
+            dew_point=_float(selected.get("dew_point")),
+            wind_speed=_float(selected.get("wind_speed")),
+            precipitation_probability=_float(selected.get("precipitation_probability")),
+            fallback_used=False,
+            cache_hit=cache_hit,
+            cache_age_seconds=cache_age_seconds,
+            last_fetch_at=last_fetch_at,
+        )
+
+    def _cached_forecasts(self, weather_entity: str, now: datetime) -> tuple[list[Mapping[str, Any]], datetime] | None:
+        entry = self.forecast_cache.get(weather_entity)
+        if not isinstance(entry, Mapping):
+            return None
+        fetched_at = entry.get("fetched_at")
+        forecasts = entry.get("forecasts")
+        if not isinstance(fetched_at, datetime) or not isinstance(forecasts, list):
+            return None
+        cache_age = (now - fetched_at).total_seconds()
+        if cache_age < 0 or cache_age > self.forecast_cache_ttl_seconds:
+            return None
+        return forecasts, fetched_at
+
+    async def _resolve_weather_forecast(
+        self,
+        weather_entity: str,
+        target_time: datetime,
+        now: datetime,
+    ) -> ForecastDiagnostics:
+        cached = self._cached_forecasts(weather_entity, now)
+        if cached is not None:
+            forecasts, fetched_at = cached
+            return self._forecast_from_list(
+                forecasts,
+                weather_entity=weather_entity,
+                target_time=target_time,
+                reason="cached_nearest_hourly_forecast",
+                cache_hit=True,
+                cache_age_seconds=(now - fetched_at).total_seconds(),
+                last_fetch_at=fetched_at.isoformat(),
+            )
+
         try:
             response = await self.hass.services.async_call(
                 "weather",
@@ -257,39 +366,18 @@ class WeatherResolver:
                 weather_entity=weather_entity,
                 target_time=target_time.isoformat(),
             )
-        if not looks_hourly_forecast(forecasts):
-            return ForecastDiagnostics(
-                value=None,
-                source="weather_forecast",
-                quality="degraded",
-                reason="hourly_forecast_not_available",
-                weather_entity=weather_entity,
-                target_time=target_time.isoformat(),
-            )
-        selected = select_hourly_forecast(forecasts, target_time)
-        if selected is None:
-            return ForecastDiagnostics(
-                value=None,
-                source="weather_forecast",
-                quality="degraded",
-                reason="no_hourly_forecast_temperature",
-                weather_entity=weather_entity,
-                target_time=target_time.isoformat(),
-            )
-
-        return ForecastDiagnostics(
-            value=_float(selected.get("temperature")),
-            source="weather_forecast",
-            quality="ok",
-            reason="nearest_hourly_forecast",
+        self.forecast_cache[weather_entity] = {
+            "fetched_at": now,
+            "forecasts": [dict(item) for item in forecasts if isinstance(item, Mapping)],
+        }
+        return self._forecast_from_list(
+            self.forecast_cache[weather_entity]["forecasts"],
             weather_entity=weather_entity,
-            target_time=target_time.isoformat(),
-            forecast_datetime=selected.get("datetime"),
-            condition=selected.get("condition"),
-            dew_point=_float(selected.get("dew_point")),
-            wind_speed=_float(selected.get("wind_speed")),
-            precipitation_probability=_float(selected.get("precipitation_probability")),
-            fallback_used=False,
+            target_time=target_time,
+            reason="nearest_hourly_forecast",
+            cache_hit=False,
+            cache_age_seconds=0,
+            last_fetch_at=now.isoformat(),
         )
 
     def _resolve_feels_like(self, *, real_temperature: float | None) -> FeelsLikeDiagnostics:

@@ -31,8 +31,10 @@ class ClimatePolicyEntity(Entity):
     def _handle_update(self) -> None:
         payload = self._published_payload_signature()
         if payload == self._last_published_payload:
+            self.coord.record_entity_publish(changed=False)
             return
         self._last_published_payload = payload
+        self.coord.record_entity_publish(changed=True)
         self.async_write_ha_state()
 
     def _published_payload_signature(self) -> str:
