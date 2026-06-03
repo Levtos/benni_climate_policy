@@ -87,6 +87,29 @@ def test_weather_resolver_sensor_tests_guard_against_forecast_lists_in_attribute
     assert "forecast_time" in forecast_sensor
 
 
+def test_effective_temperature_sensor_does_not_publish_high_frequency_raw_diagnostics():
+    effective_sensor = SENSOR_SOURCE[
+        SENSOR_SOURCE.index("class EffectiveOutdoorTemperatureSensor"):
+        SENSOR_SOURCE.index("class ForecastTemperature3hSensor")
+    ]
+
+    assert '"outdoor_lux"' not in effective_sensor
+    assert '"sun_elevation"' not in effective_sensor
+    assert '"forecast_resolution":' not in effective_sensor
+    assert '"feels_like_resolution":' not in effective_sensor
+    assert '"debug_payload_available"' in effective_sensor
+
+
+def test_forecast_sensor_target_time_uses_stable_forecast_datetime():
+    forecast_sensor = SENSOR_SOURCE[
+        SENSOR_SOURCE.index("class ForecastTemperature3hSensor"):
+        SENSOR_SOURCE.index("class OutdoorFeelsLikeTemperatureSensor")
+    ]
+
+    assert '"target_time": diag.forecast_datetime' in forecast_sensor
+    assert '"target_time": diag.target_time' not in forecast_sensor
+
+
 def test_frontend_does_not_poll_debug_endpoint_for_every_hass_update():
     assert "const DEBUG_REFRESH_MS = 60000" in FRONTEND_SOURCE
     assert "const DEBUG_VIEWS = new Set" in FRONTEND_SOURCE

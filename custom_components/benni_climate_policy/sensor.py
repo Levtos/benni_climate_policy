@@ -96,24 +96,29 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         inputs = self.coord.effective_input_snapshot()
+        forecast_resolution = inputs.get("forecast_resolution") or {}
+        feels_like_resolution = inputs.get("feels_like_resolution") or {}
         compact_inputs = {
-            key: inputs.get(key)
-            for key in (
-                "real_temperature",
-                "feels_like_temperature",
-                "forecast_temperature",
-                "weather_condition",
-                "outdoor_lux",
-                "sun_elevation",
-            )
+            "real_temperature": inputs.get("real_temperature"),
+            "feels_like_temperature": inputs.get("feels_like_temperature"),
+            "forecast_temperature": inputs.get("forecast_temperature"),
+            "weather_condition": inputs.get("weather_condition"),
+            "source_entities": inputs.get("source_entities"),
+            "forecast_source": forecast_resolution.get("source"),
+            "forecast_quality": forecast_resolution.get("quality"),
+            "forecast_reason": forecast_resolution.get("reason"),
+            "feels_like_source": feels_like_resolution.get("source"),
+            "feels_like_quality": feels_like_resolution.get("quality"),
+            "feels_like_reason": feels_like_resolution.get("reason"),
         }
-        compact_inputs["source_entities"] = inputs.get("source_entities")
-        compact_inputs["forecast_resolution"] = inputs.get("forecast_resolution")
-        compact_inputs["feels_like_resolution"] = inputs.get("feels_like_resolution")
         if not self.coord.decision:
             return compact_inputs
+        breakdown = self.coord.decision.effective_temperature
         return {
-            **self.coord.decision.effective_temperature.as_dict(),
+            "real_temperature": breakdown.real_temperature,
+            "effective_temperature": breakdown.effective_temperature,
+            "input_quality": breakdown.input_quality,
+            "debug_payload_available": True,
             "inputs": compact_inputs,
         }
 
@@ -140,7 +145,7 @@ class ForecastTemperature3hSensor(ClimatePolicyEntity, SensorEntity):
             "quality": diag.quality,
             "fallback_used": diag.fallback_used,
             "reason": diag.reason,
-            "target_time": diag.target_time,
+            "target_time": diag.forecast_datetime,
             "forecast_time": diag.forecast_datetime,
         }
 
