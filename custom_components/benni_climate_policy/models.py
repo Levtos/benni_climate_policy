@@ -222,6 +222,16 @@ class ClimateDecision:
     def zone(self, zone: str) -> ZonePlan | None:
         return self.zone_plans.get(zone)
 
+    @property
+    def input_hash(self) -> str:
+        payload = {
+            "context": self.context.as_dict(),
+            "effective_temperature": self.effective_temperature.as_dict(),
+            "system_ready": self.system_ready,
+        }
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
 
 @dataclass(frozen=True)
 class ApplyActionResult:
@@ -251,12 +261,16 @@ class ApplyResult:
     reason: str
     actions: list[ApplyActionResult]
     dry_run: bool = False
+    input_hash: str | None = None
+    plan_hashes: dict[str, str | None] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "reason": self.reason,
             "dry_run": self.dry_run,
+            "input_hash": self.input_hash,
+            "plan_hashes": dict(self.plan_hashes),
             "actions": [a.as_dict() for a in self.actions],
         }
 

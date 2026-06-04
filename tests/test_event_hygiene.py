@@ -79,7 +79,7 @@ def test_dry_run_does_not_force_recalculate_loop():
     apply_source = _method_source(COORDINATOR_SOURCE, "async_apply")
 
     assert "dry_run: bool" in apply_source
-    assert "await self.async_evaluate(auto_apply=False, reason=\"apply_without_decision\")" in apply_source
+    assert "await self.async_evaluate(auto_apply=False, reason=\"apply_refresh_before_execute\")" in apply_source
     assert apply_source.count("await self.async_evaluate(auto_apply=False") == 1
     assert apply_source.count("self._notify()") <= 2
     assert "return self.last_apply_result" in apply_source

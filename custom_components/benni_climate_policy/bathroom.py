@@ -15,6 +15,8 @@ BathFanMode = Literal["off", "akut", "nachluft", "stoss"]
 BATH_SETPOINT_PROTECTION = 16.0
 BATH_SETPOINT_GROUND = 19.0
 BATH_SETPOINT_COMFORT = 22.5
+BATH_SETPOINT_OFF = 10.0
+BATH_OVER_TARGET_HYSTERESIS = 0.3
 BATH_COMFORT_SUPPRESSION_TEFF = 18.0
 BATH_BONUS_TEFF_0 = 0.5
 BATH_BONUS_TEFF_5 = 0.3
@@ -345,7 +347,7 @@ def decide_bathroom_climate(
     is_workday = workday in ("werktag", "workday", "working_day", "on")
     is_free = workday in ("wochenende", "weekend", "frei", "free", "holiday", "off")
 
-    profile: Literal["protection", "grundwaerme", "komfort"] = "grundwaerme"
+    profile: Literal["off", "protection", "grundwaerme", "komfort"] = "grundwaerme"
     reason = "bath_ground_heat_default"
     target = tuning.setpoint_ground
 
@@ -370,6 +372,16 @@ def decide_bathroom_climate(
             path.append(reason)
         else:
             path.append(reason)
+
+    if (
+        inp.room_temperature is not None
+        and profile != "protection"
+        and inp.room_temperature >= target + BATH_OVER_TARGET_HYSTERESIS
+    ):
+        profile = "off"
+        target = BATH_SETPOINT_OFF
+        reason = "bath_over_target_forces_off"
+        path.append(reason)
 
     return ZonePlan(
         zone="bathroom",

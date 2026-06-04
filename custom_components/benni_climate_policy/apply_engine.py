@@ -10,6 +10,27 @@ if TYPE_CHECKING:
 
 from .models import ApplyActionResult, ApplyResult, ZonePlan
 
+SAFETY_DOWNSHIFT_REASONS = {
+    "window_blocks_heating",
+    "living_area_window_or_door_open_or_tilted",
+    "bath_over_target_forces_off",
+}
+
+
+def safety_downshift_reason(plan: ZonePlan) -> str | None:
+    reasons = {
+        getattr(plan, "reason", None),
+        *getattr(plan, "decision_path", ()),
+        *getattr(plan, "blocked_by", ()),
+    }
+    if getattr(plan, "profile", None) == "off" and reasons & SAFETY_DOWNSHIFT_REASONS:
+        return next(reason for reason in SAFETY_DOWNSHIFT_REASONS if reason in reasons)
+    return None
+
+
+def is_safety_downshift(plan: ZonePlan) -> bool:
+    return safety_downshift_reason(plan) is not None
+
 
 @dataclass(frozen=True)
 class ApplyGateState:
@@ -30,8 +51,19 @@ def evaluate_apply_gate(
     target_entity_id: str | None,
     gate: ApplyGateState,
 ) -> ApplyActionResult:
+    forced_reason = safety_downshift_reason(plan)
     if gate.dry_run:
-        return ApplyActionResult(plan.zone, "dry_run", "dry_run", target_entity_id, plan.plan_hash)
+        return ApplyActionResult(
+            plan.zone,
+            "dry_run",
+            "dry_run",
+            target_entity_id,
+            plan.plan_hash,
+            details={
+                "forced_safety_downshift": bool(forced_reason),
+                "safety_downshift_reason": forced_reason,
+            },
+        )
     if not gate.manual and not gate.apply_active:
         return ApplyActionResult(plan.zone, "blocked", "auto_apply_inactive", target_entity_id, plan.plan_hash)
     if not gate.system_ready:
@@ -43,12 +75,22 @@ def evaluate_apply_gate(
     if not target_entity_id:
         return ApplyActionResult(plan.zone, "blocked", "target_entity_missing", target_entity_id, plan.plan_hash)
     if gate.target_state in (None, "unknown", "unavailable", ""):
-        return ApplyActionResult(plan.zone, "error", "target_entity_unavailable", target_entity_id, plan.plan_hash)
-    if gate.last_applied_hash == plan.plan_hash:
+        return ApplyActionResult(plan.zone, "error", "failed_entity_unavailable", target_entity_id, plan.plan_hash)
+    if not forced_reason and gate.last_applied_hash == plan.plan_hash:
         return ApplyActionResult(plan.zone, "skipped", "plan_unchanged", target_entity_id, plan.plan_hash)
-    if gate.last_apply_at and gate.now - gate.last_apply_at < timedelta(seconds=gate.cooldown_seconds):
-        return ApplyActionResult(plan.zone, "blocked", "cooldown_active", target_entity_id, plan.plan_hash)
-    return ApplyActionResult(plan.zone, "applied", "ok", target_entity_id, plan.plan_hash)
+    if not forced_reason and gate.last_apply_at and gate.now - gate.last_apply_at < timedelta(seconds=gate.cooldown_seconds):
+        return ApplyActionResult(plan.zone, "blocked", "blocked_by_cooldown", target_entity_id, plan.plan_hash)
+    return ApplyActionResult(
+        plan.zone,
+        "applied",
+        "forced_safety_downshift" if forced_reason else "ok",
+        target_entity_id,
+        plan.plan_hash,
+        details={
+            "forced_safety_downshift": bool(forced_reason),
+            "safety_downshift_reason": forced_reason,
+        },
+    )
 
 
 def _call(
@@ -134,6 +176,9 @@ class ApplyEngine:
             hypothetical_gate = evaluate_apply_gate(plan, target_entity_id, replace(gate, dry_run=False))
             if hypothetical_gate.status == "applied":
                 calls, reason, details = _planned_service_calls(plan, target_entity_id, target_state)
+                details.update(hypothetical_gate.details)
+                if hypothetical_gate.details.get("forced_safety_downshift"):
+                    reason = "forced_safety_downshift"
             elif hypothetical_gate.reason == "plan_unchanged":
                 calls, reason, details = [], "no_relevant_change", {"gate_reason": hypothetical_gate.reason}
             else:
@@ -153,38 +198,26 @@ class ApplyEngine:
         if result.status != "applied":
             return result
 
-        calls: list[dict[str, Any]] = []
-        if plan.profile == "off":
-            calls.append(_call("set_temperature", target_entity_id, {"temperature": 10.0}))
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"temperature": 10.0},
-                target={"entity_id": target_entity_id},
-                blocking=False,
+        target_state = self.hass.states.get(target_entity_id) if target_entity_id else None
+        planned_calls, planned_reason, planned_details = _planned_service_calls(plan, target_entity_id, target_state)
+        if result.details.get("forced_safety_downshift"):
+            planned_details.update(result.details)
+        if not planned_calls:
+            return ApplyActionResult(
+                result.zone,
+                "skipped",
+                "skipped_already_at_target" if planned_reason == "already_at_target" else planned_reason,
+                result.target_entity_id,
+                result.plan_hash,
+                [],
+                planned_details,
             )
-            state = self.hass.states.get(target_entity_id) if target_entity_id else None
-            modes = state.attributes.get("hvac_modes", []) if state else []
-            if "off" in modes:
-                calls.append(_call("set_hvac_mode", target_entity_id, {"hvac_mode": "off"}))
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"hvac_mode": "off"},
-                    target={"entity_id": target_entity_id},
-                    blocking=False,
-                )
-        else:
-            calls.append(_call(
-                "set_temperature",
-                target_entity_id,
-                {"temperature": plan.target_temperature, "hvac_mode": "heat"},
-            ))
+        for call in planned_calls:
             await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"temperature": plan.target_temperature, "hvac_mode": "heat"},
-                target={"entity_id": target_entity_id},
+                call["domain"],
+                call["service"],
+                call["service_data"],
+                target=call["target"],
                 blocking=False,
             )
         return ApplyActionResult(
@@ -193,7 +226,8 @@ class ApplyEngine:
             result.reason,
             result.target_entity_id,
             result.plan_hash,
-            calls,
+            planned_calls,
+            planned_details,
         )
 
     async def async_apply_switch_plan(
