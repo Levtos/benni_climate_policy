@@ -28,6 +28,12 @@ vm.runInContext(source, context);
 const values = {
   modeSpar: context.modeLabel("spar"),
   modeGround: context.modeLabel("grundwaerme"),
+  fanAkut: context.fanModeLabel("akut"),
+  fanAfterrun: context.fanModeLabel("afterrun"),
+  fanStoss: context.fanModeLabel("stoss"),
+  fanOff: context.fanModeLabel("off"),
+  bathOverTargetReason: context.reasonLabel("Bath over target forces off"),
+  safetyReason: context.reasonLabel("forced_safety_downshift"),
   effectiveLarge: context.effectiveOutdoorLabel("large"),
   effectiveChip: context.effectiveOutdoorLabel("chip"),
   weatherRainy: context.weatherConditionLabel("rainy"),
@@ -57,6 +63,71 @@ const values = {
   contextHousehold: context.translateContextValue("presence_household", "nicht_leer"),
   seasonSummer: context.seasonBandLabel("summer"),
 };
+const fakeHass = {
+  states: {
+    "binary_sensor.climate_system_ready": { state: "on", attributes: {} },
+    "binary_sensor.climate_policy_apply_ready": { state: "on", attributes: {} },
+    "switch.climate_policy_apply_active": { state: "on", attributes: {} },
+    "sensor.climate_effective_outdoor_temperature": {
+      state: "12.9",
+      attributes: {
+        effective_temperature: 12.9,
+        inputs: {
+          real_temperature: 13.2,
+          weather_condition: "rainy",
+          outdoor_lux: 900,
+        },
+      },
+    },
+    "sensor.climate_forecast_temperature_3h": { state: "13.0", attributes: {} },
+    "sensor.climate_outdoor_feels_like_temperature": { state: "12.4", attributes: {} },
+    "sensor.climate_policy_apply_status": { state: "applied", attributes: {} },
+    "sensor.climate_policy_last_apply": { state: "never", attributes: {} },
+    "sensor.bathroom_fan_mode": { state: "akut", attributes: {} },
+  },
+};
+const livingAreaWindows = [
+  ["Wohnzimmerfenster links", "binary_sensor.living_window_left_open_atomic", "binary_sensor.living_window_left_tilt_atomic"],
+  ["Wohnzimmerfenster rechts", "binary_sensor.living_window_right_open_atomic", "binary_sensor.living_window_right_tilt_atomic"],
+  ["Terrassentür Küche", "binary_sensor.kitchen_patio_door_open_atomic", "binary_sensor.kitchen_patio_door_tilt_atomic"],
+];
+for (const [, openEntity, tiltEntity] of livingAreaWindows) {
+  fakeHass.states[openEntity] = { state: "off", attributes: {} };
+  fakeHass.states[tiltEntity] = { state: "off", attributes: {} };
+}
+const fakeApp = {
+  _debugPayload: {
+    effective_outdoor_temperature: { effective_temperature: 12.9 },
+    effective_inputs: { real_temperature: 13.2, weather_condition: "rainy", outdoor_lux: 900 },
+    plans: {
+      living_room: { profile: "off", reason: "window_blocks_heating", target_temperature: 10, policy_target_temperature: 10 },
+      kitchen: { profile: "off", reason: "window_blocks_heating", target_temperature: 10, policy_target_temperature: 10 },
+      bathroom: { profile: "off", reason: "bath_over_target_forces_off", target_temperature: 10, policy_target_temperature: 10 },
+    },
+    bathroom: {
+      fan_plan: { mode: "akut", fan_reason: "bath_fan_acute_humidity_rise_or_threshold" },
+    },
+  },
+};
+values.overviewHtml = context.renderOverview(fakeHass, fakeApp);
+values.overviewSentence = context.overviewSentence(fakeHass, fakeApp);
+values.consequences = context.consequenceItems(fakeHass, fakeApp);
+values.fanIndicator = context.heroIndicator(fakeHass, { _debugPayload: { bathroom: { fan_plan: { mode: "akut" } } } });
+values.windowIndicator = context.heroIndicator({
+  states: {
+    ...fakeHass.states,
+    "binary_sensor.living_window_right_tilt_atomic": { state: "on", attributes: {} },
+  },
+}, { _debugPayload: {} });
+values.safetyIndicator = context.heroIndicator(fakeHass, {
+  _debugPayload: {
+    debug: {
+      last_apply_result: {
+        actions: [{ reason: "forced_safety_downshift", details: { forced_safety_downshift: true } }],
+      },
+    },
+  },
+});
 console.log(JSON.stringify(values));
 """
     result = subprocess.run(
@@ -74,6 +145,17 @@ def test_mode_labels_are_centralized_for_visible_ux():
 
     assert values["modeSpar"] == "Eco"
     assert values["modeGround"] == "Eco"
+
+
+def test_fan_and_new_reason_labels_are_visible_ux():
+    values = _frontend_values()
+
+    assert values["fanAkut"] == "aktiv"
+    assert values["fanAfterrun"] == "Nachlauf"
+    assert values["fanStoss"] == "Stoßlüftung"
+    assert values["fanOff"] == "Aus"
+    assert values["bathOverTargetReason"] == "Bad ist warm genug, Heizung bleibt aus."
+    assert values["safetyReason"] == "Sicherheitsabsenkung angewendet"
 
 
 def test_effective_outdoor_temperature_uses_ux_labels():
@@ -121,3 +203,25 @@ def test_context_and_season_labels_are_translated():
     assert values["contextParents"] == "Bei Eltern"
     assert values["contextHousehold"] == "Haushalt zuhause"
     assert values["seasonSummer"] == "Sommerpause"
+
+
+def test_overview_uses_visible_bad_fan_labels_and_room_icon():
+    values = _frontend_values()
+
+    assert 'icon="mdi:home-group"' in values["overviewHtml"]
+    assert "Räume im Plan" in values["overviewHtml"]
+    assert "mini-stat-icon" in values["overviewHtml"]
+    assert "Bad heizt nicht nach, Lüfter ist aktiv." in values["overviewSentence"]
+    assert "Akut" not in values["overviewSentence"]
+    assert "Bad · Aus" in values["consequences"]
+    assert "Bad ist warm genug, kein Nachheizen nötig." in values["consequences"]
+    assert "Badlüfter · aktiv" in values["consequences"]
+    assert "Lüfter läuft wegen Feuchte/Taupunkt." in values["consequences"]
+
+
+def test_hero_indicator_uses_state_priority_icons():
+    values = _frontend_values()
+
+    assert values["fanIndicator"]["icon"] == "mdi:fan-alert"
+    assert values["windowIndicator"]["icon"] == "mdi:window-open-variant"
+    assert values["safetyIndicator"]["icon"] == "mdi:shield-alert-outline"
