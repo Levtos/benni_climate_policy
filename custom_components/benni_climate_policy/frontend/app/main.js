@@ -111,15 +111,15 @@ const TUNING_GROUPS = [
     ["bath_setpoint_ground", "Bad Eco-Setpoint"],
     ["bath_setpoint_comfort", "Komfort-Setpoint"],
     ["bath_comfort_suppression_teff", "Komfort bis Heizwert"],
-    ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
-    ["bath_humidity_acute_rise_threshold", "Akut-Anstieg 5 Min."],
+    ["bath_humidity_acute_threshold", "Aktiv-Luftfeuchte"],
+    ["bath_humidity_acute_rise_threshold", "Aktiv-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
-    ["bath_dewpoint_acute_threshold", "Akut-Taupunkt"],
+    ["bath_dewpoint_acute_threshold", "Aktiv-Taupunkt"],
     ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
     ["bath_ah_delta_afterrun_off", "Nachlauf Ende AH-Delta"],
     ["bath_ah_delta_stoss", "Stoßlüftung AH-Delta"],
     ["bath_fan_heat_coordination_delta", "Heiz-/Lüfter-Delta"],
-    ["bath_fan_acute_max_minutes", "Akut max. Minuten"],
+    ["bath_fan_acute_max_minutes", "Aktiv max. Minuten"],
     ["bath_fan_afterrun_max_minutes", "Nachlauf max. Minuten"],
     ["bath_fan_stoss_interval_hours", "Stoßlüftung Intervall"],
     ["bath_fan_stoss_duration_minutes", "Stoßlüftung Dauer"],
@@ -248,15 +248,17 @@ const CSS = `
 .hero::after {
   display: none;
 }
-.hero-icon, .round-icon {
+.hero-icon, .round-icon, .mini-stat-icon {
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
   width: 106px;
   height: 106px;
   border-radius: 50%;
   background: radial-gradient(circle at 36% 25%, rgba(165, 108, 255, .75), rgba(34, 199, 255, .22) 66%, rgba(34, 199, 255, .06));
 }
 .hero-icon ha-icon { --mdc-icon-size: 58px; color: var(--bcp-accent); }
+.hero-icon small { display: block; max-width: 120px; margin-top: 6px; color: var(--bcp-muted); font-size: 11px; line-height: 1.25; text-align: center; }
 .hero h2 { margin: 0; font-size: 30px; line-height: 1.28; max-width: 760px; }
 .hero p { color: var(--bcp-muted); margin: 14px 0 20px; font-size: 15px; }
 .hero .accent { color: var(--bcp-accent); }
@@ -278,7 +280,8 @@ const CSS = `
 .metric .value { font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
 .metric .entity { margin-top: 7px; color: var(--bcp-faint); font-size: 11px; font-family: ui-monospace, "Cascadia Code", monospace; overflow-wrap: anywhere; }
 .mini-stat { display: flex; gap: 14px; align-items: center; min-width: 0; }
-.mini-stat ha-icon { color: var(--bcp-accent); --mdc-icon-size: 30px; }
+.mini-stat-icon { width: 42px; height: 42px; border-radius: 8px; background: rgba(34, 199, 255, .12); }
+.mini-stat-icon ha-icon { color: var(--bcp-accent); --mdc-icon-size: 26px; }
 .mini-stat b { display: block; font-size: 20px; }
 .mini-stat span { color: var(--bcp-muted); font-size: 12px; }
 .room-card { padding: 22px; min-height: 360px; display: flex; flex-direction: column; }
@@ -734,10 +737,32 @@ const UX_LABELS = {
     blocked: "blockiert",
     cooldown_active: "Cooldown aktiv",
     already_at_target: "bereits am Ziel",
+    skipped_already_at_target: "bereits am Ziel",
+    forced_safety_downshift: "Sicherheitsabsenkung angewendet",
     none: "Keine",
     no_apply_needed: "kein Apply nötig",
+    applied: "angewendet",
+    failed_entity_unavailable: "Entity nicht verfügbar",
     window_blocks_heating: "Fenster blockiert Heizen",
     bath_ground_heat_default: "Mindestwärme gegen Auskühlung und Feuchte",
+    bath_over_target_forces_off: "Bad ist warm genug, Heizung bleibt aus.",
+    bath_temperature_above_target_no_heating: "Bad über Zieltemperatur, kein Nachheizen nötig.",
+    living_area_window_or_door_open_or_tilted: "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.",
+  },
+  fanModes: {
+    akut: "aktiv",
+    acute: "aktiv",
+    active: "aktiv",
+    aktiv: "aktiv",
+    afterrun: "Nachlauf",
+    nachlauf: "Nachlauf",
+    stoss: "Stoßlüftung",
+    stoß: "Stoßlüftung",
+    stoßlüftung: "Stoßlüftung",
+    stosslueftung: "Stoßlüftung",
+    off: "Aus",
+    aus: "Aus",
+    idle: "Aus",
   },
   effectiveOutdoor: {
     large: "Heizrelevante Außentemperatur",
@@ -864,6 +889,25 @@ function reasonLabel(value) {
   return UX_LABELS.reasons[raw] || readableFallback(value);
 }
 
+function fanModeLabel(value) {
+  const raw = normalizeUxKey(value);
+  return UX_LABELS.fanModes[raw] || modeLabel(value);
+}
+
+function isFanActiveMode(value) {
+  const raw = normalizeUxKey(value);
+  return !["", "off", "aus", "idle", "missing", "unknown", "unavailable", "none"].includes(raw);
+}
+
+function fanReasonLabel(value) {
+  const raw = String(value ?? "").toLowerCase();
+  if (!raw || ["missing", "none", "unknown", "unavailable"].includes(raw)) return "Feuchtewerte steuern den Lüfter.";
+  if (raw.includes("humidity") || raw.includes("feuchte") || raw.includes("dew") || raw.includes("taupunkt")) return "Lüfter läuft wegen Feuchte/Taupunkt.";
+  if (raw.includes("afterrun") || raw.includes("nachlauf")) return "Lüfter läuft im Nachlauf.";
+  if (raw.includes("stoss") || raw.includes("stoß")) return "Stoßlüftung ist aktiv.";
+  return reasonLabel(value);
+}
+
 function zoneIcon(zone) {
   return {
     living_room: "mdi:sofa-outline",
@@ -883,6 +927,7 @@ function zoneTone(zone) {
 function compactReason(reason, zone = "") {
   const raw = String(reason ?? "").toLowerCase();
   if (!raw || raw === "missing" || raw === "none" || raw === "unavailable") return "Keine besondere Einschränkung erkannt.";
+  if (raw.includes("bath_over_target") || raw.includes("bath temperature above") || raw.includes("bath over target")) return "Bad ist warm genug, Heizung bleibt aus.";
   if (raw.includes("window") || raw.includes("fenster")) return "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.";
   if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv: Eco statt Komfortheizen.";
   if (raw.includes("spar") || raw.includes("eco")) return "Eco-Modus ist aktiv.";
@@ -891,7 +936,7 @@ function compactReason(reason, zone = "") {
   if (raw.includes("boost")) return "Boost ist gerade möglich oder angefragt.";
   if (raw.includes("cooldown")) return "Cooldown verhindert zu häufiges Anwenden.";
   if (raw.includes("startup")) return "Start-Ruhezeit schützt vor Kurzschluss.";
-  if (raw.includes("humidity") || raw.includes("feuchte") || raw.includes("dew")) return "Feuchtewerte bestimmen die Bad-Logik.";
+  if (raw.includes("humidity") || raw.includes("feuchte") || raw.includes("dew")) return "Lüfter läuft wegen Feuchte/Taupunkt.";
   if (raw.includes("fan") || raw.includes("lüfter") || raw.includes("luefter")) return "Der Badlüfter wird koordiniert.";
   return `${zone ? `${ZONES[zone]?.label || zone}: ` : ""}${reasonLabel(reason)}`;
 }
@@ -1092,6 +1137,12 @@ function consequenceItems(hass, app) {
   const fan = bath.fan_plan || {};
   const zoneItems = Object.entries(ZONES).map(([zone, meta]) => {
     const plan = zonePlan(hass, zone, app);
+    if (zone === "bathroom" && isBathroomNoHeating(plan)) {
+      return `<div class="reason">
+        ${icon(zoneIcon(zone))}
+        <div><small>Bad · ${esc(modeLabel(plan.profile))}</small><b>Bad ist warm genug, kein Nachheizen nötig.</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
+      </div>`;
+    }
     return `<div class="reason">
       ${icon(zoneIcon(zone))}
       <div><small>${esc(meta.label)} · ${esc(primaryConsequence(plan, zone))}</small><b>${esc(modeLabel(plan.profile))} auf ${esc(tempText(policyTarget(plan)))}</b><br><span class="muted">${esc(compactReason(primaryReason(plan, zone), zone))}</span></div>
@@ -1105,8 +1156,22 @@ function consequenceItems(hass, app) {
     || String(fanReason).toLowerCase().includes("dew");
   return zoneItems + (showFan ? `<div class="reason">
     ${icon("mdi:fan")}
-    <div><small>Badlüfter</small><b>${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</b><br><span class="muted">${esc(compactReason(fan.fan_reason ?? fan.reason ?? fan.apply_block_reason ?? "Koordiniert mit Bad-Feuchte und Heizung."))}</span></div>
+    <div><small>Badlüfter · ${esc(fanModeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</small><b>${esc(fanReasonLabel(fan.fan_reason ?? fan.reason ?? fan.apply_block_reason))}</b><br><span class="muted">Feuchtewerte steuern den Lüfter.</span></div>
   </div>` : "");
+}
+
+function isBathroomNoHeating(plan) {
+  const reason = normalizeUxKey(primaryReason(plan, "bathroom"));
+  const profile = normalizeUxKey(plan?.profile);
+  return ["bath_over_target_forces_off", "bath_temperature_above_target_no_heating"].includes(reason)
+    || profile === "off"
+    || profile === "aus";
+}
+
+function bathroomHeroPhrase(bathroom, fanMode) {
+  const fanText = isFanActiveMode(fanMode) ? "aktiv" : "aus";
+  if (isBathroomNoHeating(bathroom)) return `Bad heizt nicht nach, Lüfter ist ${fanText}.`;
+  return `Bad ist ${modeLabel(bathroom.profile)}, Lüfter ist ${fanText}.`;
 }
 
 function overviewSentence(hass, app) {
@@ -1114,21 +1179,24 @@ function overviewSentence(hass, app) {
   const kitchen = zonePlan(hass, "kitchen", app);
   const bathroom = zonePlan(hass, "bathroom", app);
   const fan = bathroomDebug(hass, app).fan_plan || {};
+  const fanMode = fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode);
+  const bathroomText = bathroomHeroPhrase(bathroom, fanMode);
   const weather = weatherLabel(hass, app);
   const windowStatus = livingAreaWindowStatus(hass);
   const livingReason = String(primaryReason(living)).toLowerCase();
   const kitchenReason = String(primaryReason(kitchen)).toLowerCase();
   if (windowStatus.blocked || livingReason.includes("window") || kitchenReason.includes("window")) {
-    return `Aktuell <span class="accent">${esc(weather)}</span> draußen. <span class="pink">${esc(windowStatus.label)}</span>: Wohnbereich heizt nicht. Bad hält <span class="accent">${esc(modeLabel(bathroom.profile))}</span>, Lüfter ist ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}.`;
+    return `Aktuell <span class="accent">${esc(weather)}</span> draußen. <span class="pink">${esc(windowStatus.label)}</span>: Wohnbereich heizt nicht. ${esc(bathroomText)}`;
   }
   if (kitchenReason.includes("summer")) {
-    return `Aktuell <span class="accent">${esc(weather)}</span> draußen. Küche bleibt wegen Sommerregel im <span class="purple">${esc(modeLabel(kitchen.profile))}</span>. Bad hält <span class="accent">${esc(modeLabel(bathroom.profile))}</span>, Lüfter ist ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}.`;
+    return `Aktuell <span class="accent">${esc(weather)}</span> draußen. Küche bleibt wegen Sommerregel im <span class="purple">${esc(modeLabel(kitchen.profile))}</span>. ${esc(bathroomText)}`;
   }
-  return `Aktuell <span class="accent">${esc(weather)}</span> draußen. Wohnzimmer ist <span class="purple">${esc(modeLabel(living.profile))}</span>, Küche ist <span class="purple">${esc(modeLabel(kitchen.profile))}</span>. Bad hält <span class="accent">${esc(modeLabel(bathroom.profile))}</span>.`;
+  return `Aktuell <span class="accent">${esc(weather)}</span> draußen. Wohnzimmer ist <span class="purple">${esc(modeLabel(living.profile))}</span>, Küche ist <span class="purple">${esc(modeLabel(kitchen.profile))}</span>. ${esc(bathroomText)}`;
 }
 
 function primaryConsequence(plan, zone) {
   const reason = String(primaryReason(plan, zone)).toLowerCase();
+  if (zone === "bathroom" && isBathroomNoHeating(plan)) return "Aus";
   if (reason.includes("window")) return "Heizen blockiert";
   if (reason.includes("summer") || String(plan.profile).toLowerCase().includes("spar")) return "Eco aktiv";
   if (String(plan.profile).toLowerCase().includes("grund")) return "Eco aktiv";
@@ -1153,8 +1221,97 @@ function policyConsequence(hass, app) {
   return "Die Policy zeigt aktuell die geplante Wärmeabgabe.";
 }
 
+function targetEntityIssues(hass, app) {
+  return Object.values(plans(hass, app))
+    .map((plan) => plan?.target_entity_id)
+    .filter((entityId) => entityId && !stateObj(hass, entityId));
+}
+
+function lastApplyActions(hass, app) {
+  const payload = debugPayload(hass, app);
+  const lastApply = endpointDebug(app).last_apply_result || payload.last_apply_result || null;
+  return Array.isArray(lastApply?.actions) ? lastApply.actions : [];
+}
+
+function hasSafetyDownshift(hass, app) {
+  const actionMatch = lastApplyActions(hass, app).some((action) =>
+    action?.details?.forced_safety_downshift === true
+    || normalizeUxKey(action?.reason) === "forced_safety_downshift"
+    || normalizeUxKey(action?.details?.safety_downshift_reason));
+  if (actionMatch) return true;
+  return Object.values(plans(hass, app)).some((plan) =>
+    ["bath_over_target_forces_off", "bath_temperature_above_target_no_heating"].includes(normalizeUxKey(primaryReason(plan))));
+}
+
+function hasFanSignal(hass, app) {
+  const fan = bathroomDebug(hass, app).fan_plan || {};
+  const mode = fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode, "missing");
+  const reason = String(fan.fan_reason ?? fan.reason ?? fan.apply_block_reason ?? "").toLowerCase();
+  return isFanActiveMode(mode)
+    || reason.includes("humidity")
+    || reason.includes("feuchte")
+    || reason.includes("dew")
+    || reason.includes("taupunkt");
+}
+
+function plansAreSynchronized(hass, app) {
+  return Object.keys(ZONES).every((zone) => {
+    const plan = zonePlan(hass, zone, app);
+    return plan.plan_hash && plan.last_applied_plan_hash && plan.plan_hash === plan.last_applied_plan_hash;
+  });
+}
+
+function heroIndicator(hass, app) {
+  const inputIssues = importantInputIssues(hass, app);
+  const targetIssues = targetEntityIssues(hass, app);
+  if (inputIssues.length || targetIssues.length) {
+    return {
+      icon: "mdi:alert-circle-outline",
+      label: "Eingaben prüfen",
+      title: inputIssues[0] || `Thermostat nicht verfügbar: ${targetIssues[0]}`,
+    };
+  }
+  if (hasSafetyDownshift(hass, app)) {
+    return {
+      icon: "mdi:shield-alert-outline",
+      label: "Sicherheitsabsenkung",
+      title: "Eine sichere Absenkung oder Heizsperre hat Vorrang.",
+    };
+  }
+  const windowStatus = livingAreaWindowStatus(hass);
+  const windowPlan = Object.keys(ZONES).some((zone) => String(primaryReason(zonePlan(hass, zone, app))).toLowerCase().includes("window"));
+  if (windowStatus.blocked || windowPlan) {
+    return {
+      icon: "mdi:window-open-variant",
+      label: "Wohnbereich blockiert",
+      title: windowStatus.blocked ? windowStatus.label : "Fenster/Tür blockiert den Wohnbereich.",
+    };
+  }
+  if (hasFanSignal(hass, app)) {
+    return {
+      icon: "mdi:fan-alert",
+      label: "Feuchte/Lüfter aktiv",
+      title: "Der Badlüfter oder auffällige Feuchtewerte bestimmen den Zustand.",
+    };
+  }
+  if (stateText(hass, ENTITIES.applyActive) !== "on") {
+    return {
+      icon: "mdi:pause-circle-outline",
+      label: "Apply aus",
+      title: "Automatik ist aus; Änderungen bleiben als Plan sichtbar.",
+    };
+  }
+  return {
+    icon: plansAreSynchronized(hass, app) ? "mdi:check-circle-outline" : "mdi:check-decagram-outline",
+    label: plansAreSynchronized(hass, app) ? "Stabil und synchron" : "Stabil geplant",
+    title: plansAreSynchronized(hass, app)
+      ? "Alle Pläne sind synchron mit dem letzten Apply."
+      : "Keine auffälligen Blocker erkannt; geplante Änderungen sind sichtbar.",
+  };
+}
+
 function miniStat(iconName, value, label) {
-  return `<div class="card mini-stat">${icon(iconName)}<div><b>${esc(displayValue(value))}</b><span>${esc(label)}</span></div></div>`;
+  return `<div class="card mini-stat"><span class="mini-stat-icon">${icon(iconName)}</span><div><b>${esc(displayValue(value))}</b><span>${esc(label)}</span></div></div>`;
 }
 
 function renderOverview(hass, app) {
@@ -1166,9 +1323,10 @@ function renderOverview(hass, app) {
   const br = effectiveBreakdown(hass, app);
   const inputs = effectiveInputs(hass, app);
   const ctx = contextSnapshot(hass, app);
+  const indicator = heroIndicator(hass, app);
   return `
     <section class="hero">
-      <div class="hero-icon">${icon("mdi:emoticon-outline")}</div>
+      <div class="hero-icon" title="${esc(indicator.title)}">${icon(indicator.icon)}<small>${esc(indicator.label)}</small></div>
       <div>
         <h2>${overviewSentence(hass, app)}</h2>
         <p>${esc(policyConsequence(hass, app))}</p>
@@ -1182,7 +1340,7 @@ function renderOverview(hass, app) {
     </section>
 
     <div class="section grid cols-4">
-      ${miniStat("mdi:home-check-outline", "3", "Räume im Plan")}
+      ${miniStat("mdi:home-group", "3", "Räume im Plan")}
       ${miniStat("mdi:thermometer-lines", tempText(stateText(hass, ENTITIES.effectiveTemp)), effectiveOutdoorLabel("large"))}
       ${miniStat("mdi:white-balance-sunny", outdoorFeeling(hass, app).outdoor_feeling_label, "Außengefühl")}
       ${miniStat("mdi:play-circle-outline", formatRelativeOrDateTime(stateText(hass, ENTITIES.lastApply)), "Letzter Apply")}
@@ -1277,7 +1435,7 @@ function renderZones(hass, app) {
         ${icon(zone === "bathroom" ? "mdi:water-outline" : "mdi:leaf-outline")}
         <div><small>Wichtigster Grund</small><b>${esc(reason)}</b></div>
       </div>
-      <div class="chip-row">${zoneChipList(plan, zone)}${zone === "bathroom" ? `<span class="pill blue">Lüfter: ${esc(modeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</span>` : ""}</div>
+      <div class="chip-row">${zoneChipList(plan, zone)}${zone === "bathroom" ? `<span class="pill blue">Lüfter: ${esc(fanModeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</span>` : ""}</div>
       <div class="room-facts">
         ${roomFact("Aktuelle Temperatur", zoneRoomTemperature(hass, app, zone))}
         ${roomFact("Policy-Ziel", tempText(policyTarget(plan)))}
@@ -1301,7 +1459,7 @@ function renderZones(hass, app) {
         ${kv("Policy Reason", plan.reason ?? "missing")}
         ${kv("Apply Blocker", plan.apply_block_reason ?? plan.apply_reason)}
         ${kv("Decision Path", plan.decision_path || [])}
-        ${zone === "bathroom" ? `${kv("Lüfter Grund", fan.fan_reason ?? fan.reason ?? "missing")}${kv("AH Delta", diag.ah_delta ?? "missing")}${kv("Taupunkt", diag.dewpoint ?? "missing")}` : ""}
+        ${zone === "bathroom" ? `${kv("Lüfter Grund", fanReasonLabel(fan.fan_reason ?? fan.reason))}${kv("AH Delta", diag.ah_delta ?? "missing")}${kv("Taupunkt", diag.dewpoint ?? "missing")}` : ""}
       </details>
     </div>`;
   }).join("");
@@ -1459,20 +1617,20 @@ function renderThresholds(hass, app) {
   const automationPanel = `<div class="grid cols-2">${groupCard("boost")}${groupCard("apply")}</div>`;
   const bathFields = [
     ["bath_comfort_suppression_teff", "Komfort bis Heizwert"],
-    ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
-    ["bath_humidity_acute_rise_threshold", "Akut-Anstieg 5 Min."],
+    ["bath_humidity_acute_threshold", "Aktiv-Luftfeuchte"],
+    ["bath_humidity_acute_rise_threshold", "Aktiv-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
-    ["bath_dewpoint_acute_threshold", "Akut-Taupunkt"],
+    ["bath_dewpoint_acute_threshold", "Aktiv-Taupunkt"],
     ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
     ["bath_ah_delta_afterrun_off", "Nachlauf Ende AH-Delta"],
     ["bath_ah_delta_stoss", "Stoßlüftung AH-Delta"],
     ["bath_fan_heat_coordination_delta", "Heiz-/Lüfter-Delta"],
-    ["bath_fan_acute_max_minutes", "Akut max. Minuten"],
+    ["bath_fan_acute_max_minutes", "Aktiv max. Minuten"],
     ["bath_fan_afterrun_max_minutes", "Nachlauf max. Minuten"],
     ["bath_fan_stoss_interval_hours", "Stoßlüftung Intervall"],
     ["bath_fan_stoss_duration_minutes", "Stoßlüftung Dauer"],
   ];
-  const bathPanel = `<div class="grid cols-2"><div class="card"><h2>${icon("mdi:fan")}Bad & Lüfter</h2>${fieldRows(app, data, bathFields)}</div><div class="card"><h2>${icon("mdi:bathtub-outline")}Bad Status</h2>${kv("Badmodus", modeLabel(zonePlan(hass, "bathroom", app).profile))}${kv("Lüfter", modeLabel(bathroomDebug(hass, app).fan_plan?.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}${kv("Grund", compactReason(primaryReason(zonePlan(hass, "bathroom", app), "bathroom")))}</div></div>`;
+  const bathPanel = `<div class="grid cols-2"><div class="card"><h2>${icon("mdi:fan")}Bad & Lüfter</h2>${fieldRows(app, data, bathFields)}</div><div class="card"><h2>${icon("mdi:bathtub-outline")}Bad Status</h2>${kv("Badmodus", modeLabel(zonePlan(hass, "bathroom", app).profile))}${kv("Lüfter", fanModeLabel(bathroomDebug(hass, app).fan_plan?.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}${kv("Grund", compactReason(primaryReason(zonePlan(hass, "bathroom", app), "bathroom")))}</div></div>`;
   const advancedPanel = `<div class="grid cols-2">${groupCard("setpoints")}${groupCard("effective")}${groupCard("boost")}${groupCard("apply")}${groupCard("bath")}</div>`;
   const panels = { season: seasonPanel, setpoints: setpointsPanel, living: livingPanel, bath: bathPanel, weather: weatherPanel, automation: automationPanel, advanced: advancedPanel };
   return `${error ? `<div class="error-box">${esc(error)}</div>` : ""}
@@ -1754,8 +1912,8 @@ function diagnosticPackage(hass, app, format = "markdown") {
       policy_config_hash: plan.policy_config_hash,
     }])),
     bathroom_fan: {
-      mode: fan.mode,
-      reason: fan.reason || fan.fan_reason,
+      mode: fanModeLabel(fan.mode),
+      reason: fanReasonLabel(fan.reason || fan.fan_reason),
       target_switch_state: fan.target_switch_state,
       apply_blocker: fan.apply_block_reason,
       plan_hash: fan.plan_hash,
@@ -1810,7 +1968,7 @@ function diagnosticPackage(hass, app, format = "markdown") {
 ${lineForZone("living_room", "Wohnzimmer")}
 ${lineForZone("kitchen", "Küche")}
 ${lineForZone("bathroom", "Bad")}
-- Badlüfter: ${modeLabel(status.bathroom_fan.mode)}, Grund: ${compactReason(status.bathroom_fan.reason || status.bathroom_fan.apply_blocker)}
+- Badlüfter: ${fanModeLabel(status.bathroom_fan.mode)}, Grund: ${fanReasonLabel(status.bathroom_fan.reason || status.bathroom_fan.apply_blocker)}
 
 ## Hash-Basis
 - Living plan hash: ${displayValue(status.plans.living_room?.plan_hash)}
