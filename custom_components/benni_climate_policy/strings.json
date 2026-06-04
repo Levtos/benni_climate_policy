@@ -21,11 +21,13 @@
       },
       "environment": {
         "title": "Weather & Effective Temperature",
-        "description": "Select outdoor, weather, sun, and readiness inputs. Forecast +3h can be read from a weather entity; feels-like is optional and falls back to outdoor temperature.",
+        "description": "Select raw outdoor, weather, sun, and readiness inputs. Forecast +3h can be read from a weather entity; feels-like is computed internally from raw temperature, humidity, and wind.",
         "data": {
           "outdoor_temperature": "Outdoor temperature",
+          "outdoor_humidity": "Outdoor humidity",
+          "outdoor_wind_speed": "Outdoor wind speed",
           "weather_entity": "Weather entity",
-          "outdoor_feels_like": "Feels-like outdoor temperature",
+          "outdoor_feels_like": "Deprecated feels-like outdoor temperature",
           "forecast_temperature_3h": "Forecast temperature +3h sensor",
           "weather_condition": "Weather condition",
           "outdoor_lux": "Outdoor illuminance",
@@ -88,6 +90,9 @@
           "apply": "Apply Engine",
           "tuning_core": "Core Tuning",
           "tuning_effective": "Effective Temperature Tuning",
+          "tuning_floor_slab": "Floor Slab Delta",
+          "tuning_indoor_living": "Indoor Demand Living Area",
+          "tuning_indoor_bathroom": "Indoor Demand Bathroom",
           "tuning_bathroom": "Bathroom Policy",
           "tuning_thresholds": "Monthly Thresholds",
           "windows": "Advanced Options",
@@ -113,11 +118,13 @@
       },
       "environment": {
         "title": "Weather & Effective Temperature",
-        "description": "Review or change outdoor and weather entities. Forecast +3h can be read from a weather entity; feels-like is optional and otherwise falls back to outdoor temperature.",
+        "description": "Review or change raw outdoor and weather entities. Forecast +3h can be read from a weather entity; feels-like is computed internally from raw temperature, humidity, and wind.",
         "data": {
           "outdoor_temperature": "Outdoor temperature",
+          "outdoor_humidity": "Outdoor humidity",
+          "outdoor_wind_speed": "Outdoor wind speed",
           "weather_entity": "Weather entity",
-          "outdoor_feels_like": "Feels-like outdoor temperature",
+          "outdoor_feels_like": "Deprecated feels-like outdoor temperature",
           "forecast_temperature_3h": "Forecast temperature +3h sensor",
           "weather_condition": "Weather condition",
           "outdoor_lux": "Outdoor illuminance",
@@ -184,6 +191,52 @@
           "lux_reference": "Lux reference",
           "feels_like_damping": "Feels-like damping",
           "forecast_weight": "Forecast weight"
+        }
+      },
+      "tuning_floor_slab": {
+        "title": "Floor Slab Delta",
+        "description": "Adjust the dynamic cold-index curve used for the thermostat delta.",
+        "data": {
+          "floor_slab_mode": "Model mode",
+          "floor_slab_min_delta": "Minimum delta",
+          "floor_slab_max_delta": "Maximum delta",
+          "floor_slab_anchor_warm_index": "Warm cold index",
+          "floor_slab_anchor_warm_delta": "Warm delta",
+          "floor_slab_anchor_mild_index": "Mild cold index",
+          "floor_slab_anchor_mild_delta": "Mild delta",
+          "floor_slab_anchor_cool_index": "Cool cold index",
+          "floor_slab_anchor_cool_delta": "Cool delta",
+          "floor_slab_anchor_cold_index": "Cold cold index",
+          "floor_slab_anchor_cold_delta": "Cold delta",
+          "floor_slab_anchor_freezing_index": "Freezing cold index",
+          "floor_slab_anchor_freezing_delta": "Freezing delta"
+        }
+      },
+      "tuning_indoor_living": {
+        "title": "Indoor Demand Living Area",
+        "description": "Adjust room-temperature hysteresis for living room and kitchen.",
+        "data": {
+          "indoor_living_area_spar_heat_on_below": "Eco heat on below",
+          "indoor_living_area_spar_heat_off_at": "Eco heat off at",
+          "indoor_living_area_spar_min_hold_minutes": "Eco minimum hold minutes",
+          "indoor_living_area_komfort_heat_on_below": "Comfort heat on below",
+          "indoor_living_area_komfort_heat_off_at": "Comfort heat off at",
+          "indoor_living_area_komfort_min_hold_minutes": "Comfort minimum hold minutes",
+          "indoor_living_area_boost_heat_on_below": "Boost heat on below",
+          "indoor_living_area_boost_heat_off_at": "Boost heat off at",
+          "indoor_living_area_boost_min_hold_minutes": "Boost minimum hold minutes"
+        }
+      },
+      "tuning_indoor_bathroom": {
+        "title": "Indoor Demand Bathroom",
+        "description": "Adjust room-temperature hysteresis for bathroom heating.",
+        "data": {
+          "indoor_bathroom_grundwaerme_heat_on_below": "Eco heat on below",
+          "indoor_bathroom_grundwaerme_heat_off_at": "Eco heat off at",
+          "indoor_bathroom_grundwaerme_min_hold_minutes": "Eco minimum hold minutes",
+          "indoor_bathroom_komfort_heat_on_below": "Comfort heat on below",
+          "indoor_bathroom_komfort_heat_off_at": "Comfort heat off at",
+          "indoor_bathroom_komfort_min_hold_minutes": "Comfort minimum hold minutes"
         }
       },
       "tuning_bathroom": {

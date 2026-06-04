@@ -4,9 +4,12 @@ from datetime import datetime
 import pytest
 
 from custom_components.benni_climate_policy.policy import (
+    OPT_FLOOR_SLAB_MIN_DELTA,
+    OPT_FLOOR_SLAB_MAX_DELTA,
     OPT_SETPOINT_SPAR,
     decide_zone,
     default_policy_tuning,
+    indoor_heat_option_key,
     policy_tuning_from_options,
     threshold_option_key,
 )
@@ -93,3 +96,22 @@ def test_panel_service_uses_same_flat_options_structure():
     assert service_keys == set(snapshot["values"])
     assert service_keys == set(snapshot["defaults"])
     assert service_keys == set(snapshot["sources"])
+
+
+def test_indoor_heat_demand_options_are_validated():
+    on_key = indoor_heat_option_key("living_area", "spar", "heat_on_below")
+    off_key = indoor_heat_option_key("living_area", "spar", "heat_off_at")
+
+    updated = validated_options_update({}, {on_key: 20.0, off_key: 21.5})
+    assert active_option_values(updated)[on_key] == 20.0
+
+    with pytest.raises(ValueError):
+        validated_options_update({}, {on_key: 22.0, off_key: 21.5})
+
+
+def test_floor_slab_delta_bounds_are_validated():
+    updated = validated_options_update({}, {OPT_FLOOR_SLAB_MIN_DELTA: 0.2, OPT_FLOOR_SLAB_MAX_DELTA: 1.8})
+    assert active_option_values(updated)[OPT_FLOOR_SLAB_MAX_DELTA] == 1.8
+
+    with pytest.raises(ValueError):
+        validated_options_update({}, {OPT_FLOOR_SLAB_MIN_DELTA: 2.0, OPT_FLOOR_SLAB_MAX_DELTA: 1.0})

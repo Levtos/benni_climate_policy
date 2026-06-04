@@ -24,6 +24,8 @@ CONF_CONTEXT_WAKEUP = "context_planned_wakeup_time"
 
 CONF_OUTDOOR_TEMPERATURE = "outdoor_temperature"
 CONF_OUTDOOR_FEELS_LIKE = "outdoor_feels_like"
+CONF_OUTDOOR_HUMIDITY = "outdoor_humidity"
+CONF_OUTDOOR_WIND_SPEED = "outdoor_wind_speed"
 CONF_FORECAST_TEMPERATURE = "forecast_temperature_3h"
 CONF_WEATHER_ENTITY = "weather_entity"
 CONF_WEATHER_CONDITION = "weather_condition"
@@ -86,6 +88,8 @@ PRESET = {
     CONF_CONTEXT_TRANSITION: "sensor.context_presence_transition_combined",
     CONF_CONTEXT_WORKDAY: "sensor.context_day_context_combined",
     CONF_OUTDOOR_TEMPERATURE: "sensor.garden_temperature_atomic",
+    CONF_OUTDOOR_HUMIDITY: "sensor.weather_humidity_atomic",
+    CONF_OUTDOOR_WIND_SPEED: "sensor.weather_wind_speed_atomic",
     CONF_WEATHER_CONDITION: "sensor.weather_condition_atomic",
     CONF_WEATHER_ENTITY: "weather.dwd_home",
     CONF_OUTDOOR_LUX: "sensor.garden_illuminance_atomic",

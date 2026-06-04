@@ -98,6 +98,40 @@ const TUNING_GROUPS = [
     ["feels_like_damping", "Dämpfung gefühlte Temperatur"],
     ["forecast_weight", "Forecast-Gewichtung"],
   ]],
+  ["floor_slab", "Bodenplatten-Delta", "mdi:layers-triple-outline", [
+    ["floor_slab_mode", "Modus"],
+    ["floor_slab_min_delta", "Min. Delta"],
+    ["floor_slab_max_delta", "Max. Delta"],
+    ["floor_slab_anchor_warm_index", "Warm ab Index"],
+    ["floor_slab_anchor_warm_delta", "Warm Delta"],
+    ["floor_slab_anchor_mild_index", "Mild Index"],
+    ["floor_slab_anchor_mild_delta", "Mild Delta"],
+    ["floor_slab_anchor_cool_index", "Kühl Index"],
+    ["floor_slab_anchor_cool_delta", "Kühl Delta"],
+    ["floor_slab_anchor_cold_index", "Kalt Index"],
+    ["floor_slab_anchor_cold_delta", "Kalt Delta"],
+    ["floor_slab_anchor_freezing_index", "Frost Index"],
+    ["floor_slab_anchor_freezing_delta", "Frost Delta"],
+  ]],
+  ["indoor_living", "Innenbedarf Wohnbereich", "mdi:home-thermometer-outline", [
+    ["indoor_living_area_spar_heat_on_below", "Eco einschalten unter"],
+    ["indoor_living_area_spar_heat_off_at", "Eco ausschalten ab"],
+    ["indoor_living_area_spar_min_hold_minutes", "Eco Mindestdauer"],
+    ["indoor_living_area_komfort_heat_on_below", "Komfort einschalten unter"],
+    ["indoor_living_area_komfort_heat_off_at", "Komfort ausschalten ab"],
+    ["indoor_living_area_komfort_min_hold_minutes", "Komfort Mindestdauer"],
+    ["indoor_living_area_boost_heat_on_below", "Boost einschalten unter"],
+    ["indoor_living_area_boost_heat_off_at", "Boost ausschalten ab"],
+    ["indoor_living_area_boost_min_hold_minutes", "Boost Mindestdauer"],
+  ]],
+  ["indoor_bathroom", "Innenbedarf Bad", "mdi:bathtub-outline", [
+    ["indoor_bathroom_grundwaerme_heat_on_below", "Eco einschalten unter"],
+    ["indoor_bathroom_grundwaerme_heat_off_at", "Eco ausschalten ab"],
+    ["indoor_bathroom_grundwaerme_min_hold_minutes", "Eco Mindestdauer"],
+    ["indoor_bathroom_komfort_heat_on_below", "Komfort einschalten unter"],
+    ["indoor_bathroom_komfort_heat_off_at", "Komfort ausschalten ab"],
+    ["indoor_bathroom_komfort_min_hold_minutes", "Komfort Mindestdauer"],
+  ]],
   ["boost", "Boost", "mdi:rocket-launch-outline", [
     ["boost_delta", "Boost-Delta"],
     ["boost_activation_delta", "Aktivierungsdelta zum Raum"],
@@ -744,6 +778,21 @@ const UX_LABELS = {
     applied: "angewendet",
     failed_entity_unavailable: "Entity nicht verfügbar",
     window_blocks_heating: "Fenster blockiert Heizen",
+    room_temperature_above_target_no_heating: "Raum warm genug, kein Nachheizen nötig.",
+    living_area_temperature_above_target_no_heating: "Wohnbereich warm genug, kein Nachheizen nötig.",
+    no_heat_demand: "Kein Wärmebedarf",
+    room_temperature_above_heat_off_at: "Raum über Ausschaltgrenze",
+    room_temperature_below_heat_on_below: "Raum unter Einschaltgrenze",
+    indoor_hysteresis_holds_off: "Innen-Hysterese hält aus",
+    indoor_hysteresis_holds_heat: "Innen-Hysterese hält Heizen",
+    indoor_hysteresis_initial_allows_heat: "Innenbedarf wird initial freigegeben",
+    room_temperature_missing_allows_candidate: "Raumtemperatur fehlt, erlaubte Stufe bleibt aktiv",
+    dynamic_3day_cold_index: "Dynamischer 3-Tage-Kälteindex",
+    dynamic_floor_slab_partial_inputs: "Dynamisches Delta mit Teilwerten",
+    floor_slab_temperature_inputs_missing: "Bodenplattenwerte fehlen, statischer Fallback",
+    static_floor_slab_mode: "Statischer Bodenplattenmodus",
+    computed_from_raw_temperature_humidity_wind: "Aus Rohwerten berechnet",
+    raw_humidity_or_wind_missing: "Rohwerte fehlen, reale Außentemperatur genutzt",
     bath_ground_heat_default: "Mindestwärme gegen Auskühlung und Feuchte",
     bath_over_target_forces_off: "Bad ist warm genug, Heizung bleibt aus.",
     bath_temperature_above_target_no_heating: "Bad über Zieltemperatur, kein Nachheizen nötig.",
@@ -928,6 +977,8 @@ function compactReason(reason, zone = "") {
   const raw = String(reason ?? "").toLowerCase();
   if (!raw || raw === "missing" || raw === "none" || raw === "unavailable") return "Keine besondere Einschränkung erkannt.";
   if (raw.includes("bath_over_target") || raw.includes("bath temperature above") || raw.includes("bath over target")) return "Bad ist warm genug, Heizung bleibt aus.";
+  if (raw.includes("room_temperature_above") || raw.includes("no_heat_demand")) return "Raum warm genug, kein Nachheizen nötig.";
+  if (raw.includes("bath_temperature_above")) return "Bad ist warm genug, Heizung bleibt aus.";
   if (raw.includes("window") || raw.includes("fenster")) return "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.";
   if (raw.includes("summer") || raw.includes("sommer")) return "Sommerregel aktiv: Eco statt Komfortheizen.";
   if (raw.includes("spar") || raw.includes("eco")) return "Eco-Modus ist aktiv.";
@@ -994,6 +1045,18 @@ function policyTarget(plan) {
 
 function thermostatTarget(plan) {
   return plan.thermostat_target_temperature ?? plan.target_temperature;
+}
+
+function allowedProfileText(plan) {
+  const profile = plan.allowed_profile ?? plan.profile;
+  const suffix = profile && profile !== "off" ? " wäre erlaubt" : "Aus";
+  return profile && profile !== "off" ? `${modeLabel(profile)}${suffix}` : suffix;
+}
+
+function indoorDemandText(plan) {
+  if (plan.heat_demand === false) return "Raum warm genug, kein Nachheizen";
+  if (plan.heat_demand === true) return "Wärmebedarf vorhanden";
+  return reasonLabel(plan.indoor_heat_demand_reason || "unknown");
 }
 
 function deltaText(value) {
@@ -1438,7 +1501,10 @@ function renderZones(hass, app) {
       <div class="chip-row">${zoneChipList(plan, zone)}${zone === "bathroom" ? `<span class="pill blue">Lüfter: ${esc(fanModeLabel(fan.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}</span>` : ""}</div>
       <div class="room-facts">
         ${roomFact("Aktuelle Temperatur", zoneRoomTemperature(hass, app, zone))}
+        ${roomFact("Außenfreigabe", allowedProfileText(plan))}
+        ${roomFact("Innenbedarf", indoorDemandText(plan))}
         ${roomFact("Policy-Ziel", tempText(policyTarget(plan)))}
+        ${roomFact("Bodenplatten-Delta", `${deltaText(plan.floor_slab_delta)}${plan.floor_slab_delta_quality ? ` · ${qualityLabel(plan.floor_slab_delta_quality)}` : ""}`)}
         ${roomFact("Thermostat-Ziel", `${tempText(thermostatTarget(plan))}${numberLike(plan.floor_slab_delta) ? ` (${deltaText(plan.floor_slab_delta)})` : ""}`)}
         ${roomFact("Thermostat real", tempText(stateText(hass, meta.target, thermostatTarget(plan))))}
         ${comfort.label ? roomFact("Raumgefühl", `${displayValue(comfort.label)} · ${displayValue(comfort.reason)}`) : ""}
@@ -1454,6 +1520,10 @@ function renderZones(hass, app) {
         ${kv("Letzter Apply Hash", plan.last_applied_plan_hash, "mono")}
         ${kv("Policy Target", policyTarget(plan))}
         ${kv("Floor Slab Delta", deltaText(plan.floor_slab_delta))}
+        ${kv("Floor Slab Reason", reasonLabel(plan.floor_slab_delta_reason))}
+        ${kv("Allowed Profile", modeLabel(plan.allowed_profile))}
+        ${kv("Indoor Demand", indoorDemandText(plan))}
+        ${kv("Indoor Rule", `${tempText(plan.indoor_heat_on_below)} / ${tempText(plan.indoor_heat_off_at)} · ${displayValue(plan.indoor_min_hold_minutes, "0")} Min.`)}
         ${kv("Thermostat Target", thermostatTarget(plan))}
         ${kv("Room Comfort Quality", qualityLabel(comfort.quality))}
         ${kv("Policy Reason", plan.reason ?? "missing")}
@@ -1514,12 +1584,23 @@ function boolInput(app, data, key) {
   return `<input type="checkbox" data-tuning-key="${esc(key)}" ${checked ? "checked" : ""}>`;
 }
 
+function tuningInput(app, data, key) {
+  if (key === "floor_slab_mode") {
+    const value = String(tuningDraftValue(app, data, key) ?? "dynamic_3day");
+    return `<select data-tuning-key="${esc(key)}">
+      <option value="dynamic_3day" ${value === "dynamic_3day" ? "selected" : ""}>dynamic_3day</option>
+      <option value="static_fallback" ${value === "static_fallback" ? "selected" : ""}>static_fallback</option>
+    </select>`;
+  }
+  return numberInput(app, data, key);
+}
+
 function fieldRows(app, data, fields) {
   return fields.map(([key, label]) => {
     const dirty = isDirty(app, data, key);
     return `<div class="field-row ${dirty ? "dirty" : ""}">
       <div><b>${esc(label)}</b><br><span class="mono muted">${esc(key)}</span></div>
-      ${numberInput(app, data, key)}
+      ${tuningInput(app, data, key)}
       ${sourcePill(data.sources?.[key])}
     </div>`;
   }).join("");
@@ -1603,17 +1684,18 @@ function renderThresholds(hass, app) {
       ${kv("Wohnzimmer", `Basis aus gemeinsamen Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "living_room")}`)}
       ${kv("Küche", `Basis aus gemeinsamen Setpoints; aktuelle Temperatur ${zoneRoomTemperature(hass, app, "kitchen")}`)}
       ${kv("Fensterlogik", livingAreaWindowStatus(hass).label)}
-      <p class="muted">Wohnzimmer und Küche teilen sich die Wohnbereich-Fensterlogik. Der fachliche Zielwert bleibt sichtbar; ein saisonales Bodenplatten-Delta wird erst auf den Thermostat-Zielwert addiert.</p>
+      <p class="muted">Wohnzimmer und Küche teilen sich Fensterlogik und Innenbedarf. Außen erlaubt die Stufe, innen entscheidet der Bedarf.</p>
     </div>
     <div class="card">
       <h2>${icon("mdi:vector-combine")}Aktuelle Planwerte</h2>
       ${Object.entries(ZONES).map(([zone, meta]) => {
         const plan = zonePlan(hass, zone, app);
-        return kv(meta.label, `Policy ${tempText(policyTarget(plan))} · Thermostat ${tempText(thermostatTarget(plan))} · Delta ${deltaText(plan.floor_slab_delta)}`);
+        return kv(meta.label, `${allowedProfileText(plan)} · ${indoorDemandText(plan)} · Policy ${tempText(policyTarget(plan))} · Thermostat ${tempText(thermostatTarget(plan))} · Delta ${deltaText(plan.floor_slab_delta)}`);
       }).join("")}
     </div>
+    ${groupCard("indoor_living")}
   </div>`;
-  const weatherPanel = `<div class="grid cols-2">${groupCard("effective")}${renderEffective(hass, app)}</div>`;
+  const weatherPanel = `<div class="grid cols-2">${groupCard("effective")}${groupCard("floor_slab")}${renderEffective(hass, app)}</div>`;
   const automationPanel = `<div class="grid cols-2">${groupCard("boost")}${groupCard("apply")}</div>`;
   const bathFields = [
     ["bath_comfort_suppression_teff", "Komfort bis Heizwert"],
@@ -1630,8 +1712,8 @@ function renderThresholds(hass, app) {
     ["bath_fan_stoss_interval_hours", "Stoßlüftung Intervall"],
     ["bath_fan_stoss_duration_minutes", "Stoßlüftung Dauer"],
   ];
-  const bathPanel = `<div class="grid cols-2"><div class="card"><h2>${icon("mdi:fan")}Bad & Lüfter</h2>${fieldRows(app, data, bathFields)}</div><div class="card"><h2>${icon("mdi:bathtub-outline")}Bad Status</h2>${kv("Badmodus", modeLabel(zonePlan(hass, "bathroom", app).profile))}${kv("Lüfter", fanModeLabel(bathroomDebug(hass, app).fan_plan?.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}${kv("Grund", compactReason(primaryReason(zonePlan(hass, "bathroom", app), "bathroom")))}</div></div>`;
-  const advancedPanel = `<div class="grid cols-2">${groupCard("setpoints")}${groupCard("effective")}${groupCard("boost")}${groupCard("apply")}${groupCard("bath")}</div>`;
+  const bathPanel = `<div class="grid cols-2"><div class="card"><h2>${icon("mdi:fan")}Bad & Lüfter</h2>${fieldRows(app, data, bathFields)}</div><div class="card"><h2>${icon("mdi:bathtub-outline")}Bad Status</h2>${kv("Badmodus", modeLabel(zonePlan(hass, "bathroom", app).profile))}${kv("Außenfreigabe", allowedProfileText(zonePlan(hass, "bathroom", app)))}${kv("Innenbedarf", indoorDemandText(zonePlan(hass, "bathroom", app)))}${kv("Lüfter", fanModeLabel(bathroomDebug(hass, app).fan_plan?.mode ?? stateText(hass, ENTITIES.bathroomFanMode)))}${kv("Grund", compactReason(primaryReason(zonePlan(hass, "bathroom", app), "bathroom")))}</div>${groupCard("indoor_bathroom")}</div>`;
+  const advancedPanel = `<div class="grid cols-2">${groupCard("setpoints")}${groupCard("effective")}${groupCard("floor_slab")}${groupCard("indoor_living")}${groupCard("indoor_bathroom")}${groupCard("boost")}${groupCard("apply")}${groupCard("bath")}</div>`;
   const panels = { season: seasonPanel, setpoints: setpointsPanel, living: livingPanel, bath: bathPanel, weather: weatherPanel, automation: automationPanel, advanced: advancedPanel };
   return `${error ? `<div class="error-box">${esc(error)}</div>` : ""}
   <div class="card">
@@ -2308,14 +2390,21 @@ class BcpApp extends HTMLElement {
     dirty.forEach((key) => {
       if (key.endsWith("_disabled")) {
         payload[key] = draft[key] === true || draft[key] === "true";
+      } else if (key === "floor_slab_mode") {
+        if (!["dynamic_3day", "static_fallback"].includes(String(draft[key]))) throw new Error("floor_slab_mode ist ungültig");
+        payload[key] = String(draft[key]);
       } else if (key === "lux_reference") {
         payload[key] = this._validateNumber(key, draft[key], { min: 1 });
       } else if (weightKeys.has(key)) {
         payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 1 });
+      } else if (key.endsWith("_min_hold_minutes")) {
+        payload[key] = this._validateNumber(key, draft[key], { min: 0, integer: true });
       } else if (intKeys.has(key)) {
         payload[key] = this._validateNumber(key, draft[key], { min: 1, integer: true });
-      } else if (key.endsWith("_floor_slab_delta")) {
+      } else if (key.endsWith("_floor_slab_delta") || key === "floor_slab_min_delta" || key === "floor_slab_max_delta" || key.endsWith("_anchor_warm_delta") || key.endsWith("_anchor_mild_delta") || key.endsWith("_anchor_cool_delta") || key.endsWith("_anchor_cold_delta") || key.endsWith("_anchor_freezing_delta")) {
         payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 5 });
+      } else if (key.endsWith("_heat_on_below") || key.endsWith("_heat_off_at") || key.includes("_anchor_")) {
+        payload[key] = this._validateNumber(key, draft[key], { min: -30, max: 35 });
       } else if (key.endsWith("_threshold") || key.startsWith("setpoint_") || key.startsWith("bath_setpoint_")) {
         payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 35 });
       } else {

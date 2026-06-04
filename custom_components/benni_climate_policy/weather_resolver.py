@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import math
 from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
@@ -10,7 +11,9 @@ if TYPE_CHECKING:
 
 from .const import (
     CONF_FORECAST_TEMPERATURE,
-    CONF_OUTDOOR_FEELS_LIKE,
+    CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_WIND_SPEED,
     CONF_WEATHER_ENTITY,
     SELF_GENERATED_INPUT_ENTITY_IDS,
 )
@@ -66,6 +69,11 @@ class FeelsLikeDiagnostics:
     quality: Quality
     reason: str
     source_entity_id: str | None = None
+    source_entities: dict[str, str | None] = field(default_factory=dict)
+    outdoor_humidity: float | None = None
+    outdoor_wind_speed: float | None = None
+    outdoor_wind_speed_mps: float | None = None
+    formula: str | None = None
     fallback_used: bool = False
 
     def as_dict(self) -> dict[str, Any]:
@@ -75,6 +83,11 @@ class FeelsLikeDiagnostics:
             "quality": self.quality,
             "reason": self.reason,
             "source_entity_id": self.source_entity_id,
+            "source_entities": dict(self.source_entities),
+            "outdoor_humidity": self.outdoor_humidity,
+            "outdoor_wind_speed": self.outdoor_wind_speed,
+            "outdoor_wind_speed_mps": self.outdoor_wind_speed_mps,
+            "formula": self.formula,
             "fallback_used": self.fallback_used,
         }
 
@@ -85,14 +98,18 @@ class WeatherResolution:
     feels_like_temperature: float | None
     forecast: ForecastDiagnostics
     feels_like: FeelsLikeDiagnostics
+    floor_slab_tomorrow_temperature: float | None = None
+    floor_slab_forecast: ForecastDiagnostics | None = None
     weather_entity_candidates: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "forecast_temperature": self.forecast_temperature,
             "feels_like_temperature": self.feels_like_temperature,
+            "floor_slab_tomorrow_temperature": self.floor_slab_tomorrow_temperature,
             "forecast": self.forecast.as_dict(),
             "feels_like": self.feels_like.as_dict(),
+            "floor_slab_forecast": self.floor_slab_forecast.as_dict() if self.floor_slab_forecast else None,
             "weather_entity_candidates": list(self.weather_entity_candidates),
         }
 
@@ -163,7 +180,7 @@ def fallback_forecast(real_temperature: float | None, target_time: datetime, rea
     )
 
 
-def fallback_feels_like(real_temperature: float | None) -> FeelsLikeDiagnostics:
+def fallback_feels_like(real_temperature: float | None, *, reason: str = "fallback_to_real_temperature") -> FeelsLikeDiagnostics:
     if real_temperature is None:
         return FeelsLikeDiagnostics(
             value=None,
@@ -176,9 +193,29 @@ def fallback_feels_like(real_temperature: float | None) -> FeelsLikeDiagnostics:
         value=real_temperature,
         source="fallback_real_temperature",
         quality="fallback",
-        reason="fallback_to_real_temperature",
+        reason=reason,
         fallback_used=True,
     )
+
+
+def wind_speed_to_mps(value: float | None, unit: str | None = None) -> float | None:
+    if value is None:
+        return None
+    unit_text = (unit or "km/h").lower()
+    if unit_text in ("m/s", "mps", "meter/s", "meters/s"):
+        return value
+    if unit_text in ("mph", "mi/h"):
+        return value * 0.44704
+    if unit_text in ("kn", "kt", "kts", "knots"):
+        return value * 0.514444
+    return value / 3.6
+
+
+def apparent_temperature_celsius(temperature: float, relative_humidity: float, wind_speed_mps: float) -> float:
+    humidity = max(0.0, min(100.0, relative_humidity))
+    vapor_pressure = humidity / 100.0 * 6.105 * math.exp((17.27 * temperature) / (237.7 + temperature))
+    apparent = temperature + 0.33 * vapor_pressure - 0.70 * max(0.0, wind_speed_mps) - 4.0
+    return round(apparent, 2)
 
 
 class WeatherResolver:
@@ -219,15 +256,34 @@ class WeatherResolver:
             return [str(configured)]
         return [AUTO_WEATHER_ENTITY] if self._weather_state_available(AUTO_WEATHER_ENTITY) else []
 
-    async def async_resolve(self, *, real_temperature: float | None, now: datetime) -> WeatherResolution:
+    async def async_resolve(
+        self,
+        *,
+        real_temperature: float | None,
+        now: datetime,
+        outdoor_humidity: float | None = None,
+        outdoor_wind_speed: float | None = None,
+    ) -> WeatherResolution:
         target_time = now + timedelta(hours=3)
         forecast = await self._resolve_forecast(real_temperature=real_temperature, target_time=target_time, now=now)
-        feels_like = self._resolve_feels_like(real_temperature=real_temperature)
+        tomorrow_target = (now + timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+        floor_slab_forecast = await self._resolve_floor_slab_forecast(
+            real_temperature=real_temperature,
+            target_time=tomorrow_target,
+            now=now,
+        )
+        feels_like = self._resolve_feels_like(
+            real_temperature=real_temperature,
+            outdoor_humidity=outdoor_humidity,
+            outdoor_wind_speed=outdoor_wind_speed,
+        )
         return WeatherResolution(
             forecast_temperature=forecast.value,
             feels_like_temperature=feels_like.value,
             forecast=forecast,
             feels_like=feels_like,
+            floor_slab_tomorrow_temperature=floor_slab_forecast.value,
+            floor_slab_forecast=floor_slab_forecast,
             weather_entity_candidates=self._weather_entity_candidates(),
         )
 
@@ -259,6 +315,24 @@ class WeatherResolver:
         if self._weather_entity_candidates():
             reason = "hourly_weather_forecast_missing"
         return fallback_forecast(real_temperature, target_time, reason)
+
+    async def _resolve_floor_slab_forecast(
+        self,
+        *,
+        real_temperature: float | None,
+        target_time: datetime,
+        now: datetime,
+    ) -> ForecastDiagnostics:
+        for weather_entity in self._weather_entity_candidates():
+            forecast = await self._resolve_weather_forecast(weather_entity, target_time, now)
+            if forecast.quality == "ok":
+                return ForecastDiagnostics(
+                    **{
+                        **forecast.as_dict(),
+                        "reason": "floor_slab_tomorrow_noon_forecast" if not forecast.cache_hit else "cached_floor_slab_tomorrow_noon_forecast",
+                    }
+                )
+        return fallback_forecast(real_temperature, target_time, "floor_slab_tomorrow_forecast_missing")
 
     def _forecast_from_list(
         self,
@@ -390,16 +464,50 @@ class WeatherResolver:
             last_fetch_at=now.isoformat(),
         )
 
-    def _resolve_feels_like(self, *, real_temperature: float | None) -> FeelsLikeDiagnostics:
-        entity_id = self._external_entity_id(self.config.get(CONF_OUTDOOR_FEELS_LIKE))
-        entity_value = self._float_state(entity_id)
-        if entity_value is not None:
+    def _resolve_feels_like(
+        self,
+        *,
+        real_temperature: float | None,
+        outdoor_humidity: float | None,
+        outdoor_wind_speed: float | None,
+    ) -> FeelsLikeDiagnostics:
+        humidity_entity = self._external_entity_id(self.config.get(CONF_OUTDOOR_HUMIDITY))
+        wind_entity = self._external_entity_id(self.config.get(CONF_OUTDOOR_WIND_SPEED))
+        humidity = outdoor_humidity if outdoor_humidity is not None else self._float_state(humidity_entity)
+        wind_speed = outdoor_wind_speed if outdoor_wind_speed is not None else self._float_state(wind_entity)
+        wind_state = self._state(wind_entity)
+        wind_unit = wind_state.attributes.get("unit_of_measurement") if wind_state else None
+        wind_mps = wind_speed_to_mps(wind_speed, wind_unit)
+        source_entities = {
+            "real_temperature": self.config.get(CONF_OUTDOOR_TEMPERATURE),
+            "outdoor_humidity": humidity_entity,
+            "outdoor_wind_speed": wind_entity,
+        }
+        if real_temperature is None:
+            diag = fallback_feels_like(None)
+            return FeelsLikeDiagnostics(**{**diag.as_dict(), "source_entities": source_entities})
+        if humidity is None or wind_mps is None:
+            diag = fallback_feels_like(real_temperature, reason="raw_humidity_or_wind_missing")
             return FeelsLikeDiagnostics(
-                value=entity_value,
-                source="entity",
-                quality="ok",
-                reason="configured_feels_like_entity",
-                source_entity_id=entity_id,
-                fallback_used=False,
+                value=diag.value,
+                source=diag.source,
+                quality="fallback",
+                reason=diag.reason,
+                source_entities=source_entities,
+                outdoor_humidity=humidity,
+                outdoor_wind_speed=wind_speed,
+                outdoor_wind_speed_mps=wind_mps,
+                fallback_used=True,
             )
-        return fallback_feels_like(real_temperature)
+        return FeelsLikeDiagnostics(
+            value=apparent_temperature_celsius(real_temperature, humidity, wind_mps),
+            source="computed_apparent_temperature",
+            quality="ok",
+            reason="computed_from_raw_temperature_humidity_wind",
+            source_entities=source_entities,
+            outdoor_humidity=humidity,
+            outdoor_wind_speed=wind_speed,
+            outdoor_wind_speed_mps=round(wind_mps, 3),
+            formula="Australian apparent temperature",
+            fallback_used=False,
+        )

@@ -10,11 +10,15 @@ if TYPE_CHECKING:
 
 from .models import ApplyActionResult, ApplyResult, ZonePlan
 
-SAFETY_DOWNSHIFT_REASONS = {
+SAFETY_DOWNSHIFT_REASONS = (
     "window_blocks_heating",
     "living_area_window_or_door_open_or_tilted",
     "bath_over_target_forces_off",
-}
+    "room_temperature_above_target_no_heating",
+    "living_area_temperature_above_target_no_heating",
+    "bath_temperature_above_target_no_heating",
+    "no_heat_demand",
+)
 
 
 def safety_downshift_reason(plan: ZonePlan) -> str | None:
@@ -23,7 +27,7 @@ def safety_downshift_reason(plan: ZonePlan) -> str | None:
         *getattr(plan, "decision_path", ()),
         *getattr(plan, "blocked_by", ()),
     }
-    if getattr(plan, "profile", None) == "off" and reasons & SAFETY_DOWNSHIFT_REASONS:
+    if getattr(plan, "profile", None) == "off" and any(reason in reasons for reason in SAFETY_DOWNSHIFT_REASONS):
         return next(reason for reason in SAFETY_DOWNSHIFT_REASONS if reason in reasons)
     return None
 

@@ -21,11 +21,13 @@
       },
       "environment": {
         "title": "Wetter & effektive Aussentemperatur",
-        "description": "Waehle Aussen-, Wetter-, Sonnen- und Bereitschafts-Inputs. Forecast +3h kann aus einer Weather-Entity gelesen werden; gefuehlte Aussentemperatur ist optional und faellt sonst auf die reale Aussentemperatur zurueck.",
+        "description": "Waehle rohe Aussen-, Wetter-, Sonnen- und Bereitschafts-Inputs. Forecast +3h kann aus einer Weather-Entity gelesen werden; gefuehlte Aussentemperatur wird intern aus Temperatur, Luftfeuchte und Wind berechnet.",
         "data": {
           "outdoor_temperature": "Aussentemperatur",
+          "outdoor_humidity": "Aussenluftfeuchte",
+          "outdoor_wind_speed": "Aussen-Windgeschwindigkeit",
           "weather_entity": "Weather-Entity",
-          "outdoor_feels_like": "Gefuehlte Aussentemperatur Sensor",
+          "outdoor_feels_like": "Veralteter Sensor fuer gefuehlte Aussentemperatur",
           "forecast_temperature_3h": "Forecast-Temperatur +3h Sensor",
           "weather_condition": "Wetterzustand",
           "outdoor_lux": "Aussenhelligkeit",
@@ -88,6 +90,9 @@
           "apply": "Apply Engine",
           "tuning_core": "Core Tuning",
           "tuning_effective": "Effektive Aussentemperatur",
+          "tuning_floor_slab": "Bodenplatten-Delta",
+          "tuning_indoor_living": "Innenbedarf Wohnbereich",
+          "tuning_indoor_bathroom": "Innenbedarf Bad",
           "tuning_bathroom": "Bad Policy",
           "tuning_thresholds": "Monats-Schwellwerte",
           "windows": "Erweiterte Optionen",
@@ -113,11 +118,13 @@
       },
       "environment": {
         "title": "Wetter & effektive Aussentemperatur",
-        "description": "Pruefe oder aendere Aussen- und Wetter-Entities. Forecast +3h kann aus einer Weather-Entity gelesen werden; gefuehlte Aussentemperatur ist optional und faellt sonst auf die reale Aussentemperatur zurueck.",
+        "description": "Pruefe oder aendere rohe Aussen- und Wetter-Entities. Forecast +3h kann aus einer Weather-Entity gelesen werden; gefuehlte Aussentemperatur wird intern aus Temperatur, Luftfeuchte und Wind berechnet.",
         "data": {
           "outdoor_temperature": "Aussentemperatur",
+          "outdoor_humidity": "Aussenluftfeuchte",
+          "outdoor_wind_speed": "Aussen-Windgeschwindigkeit",
           "weather_entity": "Weather-Entity",
-          "outdoor_feels_like": "Gefuehlte Aussentemperatur Sensor",
+          "outdoor_feels_like": "Veralteter Sensor fuer gefuehlte Aussentemperatur",
           "forecast_temperature_3h": "Forecast-Temperatur +3h Sensor",
           "weather_condition": "Wetterzustand",
           "outdoor_lux": "Aussenhelligkeit",
@@ -184,6 +191,52 @@
           "lux_reference": "Lux-Referenz",
           "feels_like_damping": "Daempfung gefuehlte Temperatur",
           "forecast_weight": "Forecast-Gewichtung"
+        }
+      },
+      "tuning_floor_slab": {
+        "title": "Bodenplatten-Delta",
+        "description": "Passe die dynamische Kaelteindex-Kurve fuer den Thermostat-Aufschlag an.",
+        "data": {
+          "floor_slab_mode": "Modellmodus",
+          "floor_slab_min_delta": "Minimales Delta",
+          "floor_slab_max_delta": "Maximales Delta",
+          "floor_slab_anchor_warm_index": "Warm Kaelteindex",
+          "floor_slab_anchor_warm_delta": "Warm Delta",
+          "floor_slab_anchor_mild_index": "Mild Kaelteindex",
+          "floor_slab_anchor_mild_delta": "Mild Delta",
+          "floor_slab_anchor_cool_index": "Kuehl Kaelteindex",
+          "floor_slab_anchor_cool_delta": "Kuehl Delta",
+          "floor_slab_anchor_cold_index": "Kalt Kaelteindex",
+          "floor_slab_anchor_cold_delta": "Kalt Delta",
+          "floor_slab_anchor_freezing_index": "Frost Kaelteindex",
+          "floor_slab_anchor_freezing_delta": "Frost Delta"
+        }
+      },
+      "tuning_indoor_living": {
+        "title": "Innenbedarf Wohnbereich",
+        "description": "Passe die Raumtemperatur-Hysterese fuer Wohnzimmer und Kueche an.",
+        "data": {
+          "indoor_living_area_spar_heat_on_below": "Eco einschalten unter",
+          "indoor_living_area_spar_heat_off_at": "Eco ausschalten ab",
+          "indoor_living_area_spar_min_hold_minutes": "Eco Mindestdauer Minuten",
+          "indoor_living_area_komfort_heat_on_below": "Komfort einschalten unter",
+          "indoor_living_area_komfort_heat_off_at": "Komfort ausschalten ab",
+          "indoor_living_area_komfort_min_hold_minutes": "Komfort Mindestdauer Minuten",
+          "indoor_living_area_boost_heat_on_below": "Boost einschalten unter",
+          "indoor_living_area_boost_heat_off_at": "Boost ausschalten ab",
+          "indoor_living_area_boost_min_hold_minutes": "Boost Mindestdauer Minuten"
+        }
+      },
+      "tuning_indoor_bathroom": {
+        "title": "Innenbedarf Bad",
+        "description": "Passe die Raumtemperatur-Hysterese fuer die Badheizung an.",
+        "data": {
+          "indoor_bathroom_grundwaerme_heat_on_below": "Eco einschalten unter",
+          "indoor_bathroom_grundwaerme_heat_off_at": "Eco ausschalten ab",
+          "indoor_bathroom_grundwaerme_min_hold_minutes": "Eco Mindestdauer Minuten",
+          "indoor_bathroom_komfort_heat_on_below": "Komfort einschalten unter",
+          "indoor_bathroom_komfort_heat_off_at": "Komfort ausschalten ab",
+          "indoor_bathroom_komfort_min_hold_minutes": "Komfort Mindestdauer Minuten"
         }
       },
       "tuning_bathroom": {

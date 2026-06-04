@@ -32,9 +32,17 @@ from .const import (
 )
 from .policy import (
     DEFAULT_THRESHOLD_BANDS,
+    DEFAULT_FLOOR_SLAB_ANCHORS,
+    DEFAULT_INDOOR_HEAT_RULES,
+    FLOOR_SLAB_ANCHOR_NAMES,
+    FLOOR_SLAB_MODE_DYNAMIC_3DAY,
+    FLOOR_SLAB_MODE_STATIC_FALLBACK,
     OPT_BOOST_ACTIVATION_DELTA,
     OPT_BOOST_DELTA,
     OPT_FEELS_LIKE_DAMPING,
+    OPT_FLOOR_SLAB_MAX_DELTA,
+    OPT_FLOOR_SLAB_MIN_DELTA,
+    OPT_FLOOR_SLAB_MODE,
     OPT_FLOOR_SLAB_TAU,
     OPT_FLOOR_SLAB_DELTA,
     OPT_FORECAST_WEIGHT,
@@ -45,6 +53,8 @@ from .policy import (
     OPT_SETPOINT_OFF,
     OPT_SETPOINT_SPAR,
     default_policy_tuning,
+    floor_slab_anchor_option_key,
+    indoor_heat_option_key,
     policy_tuning_from_options,
     threshold_option_key,
 )
@@ -71,9 +81,29 @@ EFFECTIVE_KEYS = (
     OPT_FEELS_LIKE_DAMPING,
     OPT_FORECAST_WEIGHT,
 )
+FLOOR_SLAB_KEYS = (
+    OPT_FLOOR_SLAB_MODE,
+    OPT_FLOOR_SLAB_MIN_DELTA,
+    OPT_FLOOR_SLAB_MAX_DELTA,
+    *(
+        floor_slab_anchor_option_key(anchor, field)
+        for anchor in FLOOR_SLAB_ANCHOR_NAMES
+        for field in ("index", "delta")
+    ),
+)
 BOOST_KEYS = (
     OPT_BOOST_DELTA,
     OPT_BOOST_ACTIVATION_DELTA,
+)
+INDOOR_LIVING_KEYS = tuple(
+    indoor_heat_option_key("living_area", profile, field)
+    for profile in ("spar", "komfort", "boost")
+    for field in ("heat_on_below", "heat_off_at", "min_hold_minutes")
+)
+INDOOR_BATHROOM_KEYS = tuple(
+    indoor_heat_option_key("bathroom", profile, field)
+    for profile in ("grundwaerme", "komfort")
+    for field in ("heat_on_below", "heat_off_at", "min_hold_minutes")
 )
 APPLY_KEYS = (
     CONF_APPLY_COOLDOWN_SECONDS,
@@ -107,13 +137,16 @@ TUNING_SECTIONS: dict[str, tuple[str, ...]] = {
     "thresholds": THRESHOLD_KEYS,
     "setpoints": CORE_KEYS,
     "effective": EFFECTIVE_KEYS,
+    "floor_slab": FLOOR_SLAB_KEYS,
     "boost": BOOST_KEYS,
+    "indoor_living": INDOOR_LIVING_KEYS,
+    "indoor_bathroom": INDOOR_BATHROOM_KEYS,
     "apply": APPLY_KEYS,
     "bath": BATH_KEYS,
 }
 EDITABLE_OPTION_KEYS = tuple(
     key
-    for section in ("thresholds", "setpoints", "effective", "boost", "apply", "bath")
+    for section in ("thresholds", "setpoints", "effective", "floor_slab", "boost", "indoor_living", "indoor_bathroom", "apply", "bath")
     for key in TUNING_SECTIONS[section]
 )
 EDITABLE_OPTION_KEY_SET = set(EDITABLE_OPTION_KEYS)
@@ -122,15 +155,15 @@ EDITABLE_OPTION_KEY_SET = set(EDITABLE_OPTION_KEYS)
 @dataclass(frozen=True)
 class OptionSpec:
     kind: str
-    default: float | int | bool
+    default: float | int | bool | str
     min_value: float | int | None = None
     max_value: float | int | None = None
 
 
-def default_option_values() -> dict[str, float | int | bool]:
+def default_option_values() -> dict[str, float | int | bool | str]:
     policy = default_policy_tuning()
     bath = bath_tuning_from_options({})
-    values: dict[str, float | int | bool] = {
+    values: dict[str, float | int | bool | str] = {
         OPT_SETPOINT_OFF: policy.setpoint_off,
         OPT_SETPOINT_SPAR: policy.setpoint_spar,
         OPT_SETPOINT_KOMFORT: policy.setpoint_komfort,
@@ -142,6 +175,9 @@ def default_option_values() -> dict[str, float | int | bool]:
         OPT_LUX_REFERENCE: policy.lux_reference,
         OPT_FEELS_LIKE_DAMPING: policy.feels_like_damping,
         OPT_FORECAST_WEIGHT: policy.forecast_weight,
+        OPT_FLOOR_SLAB_MODE: policy.floor_slab_mode,
+        OPT_FLOOR_SLAB_MIN_DELTA: policy.floor_slab_min_delta,
+        OPT_FLOOR_SLAB_MAX_DELTA: policy.floor_slab_max_delta,
         CONF_APPLY_COOLDOWN_SECONDS: DEFAULT_COOLDOWN_SECONDS,
         CONF_STARTUP_BLOCK_SECONDS: DEFAULT_STARTUP_BLOCK_SECONDS,
         OPT_BATH_SETPOINT_PROTECTION: bath.setpoint_protection,
@@ -161,6 +197,18 @@ def default_option_values() -> dict[str, float | int | bool]:
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: bath.fan_stoss_interval_hours,
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: bath.fan_stoss_duration_minutes,
     }
+    for group, profiles in DEFAULT_INDOOR_HEAT_RULES.items():
+        for profile, defaults in profiles.items():
+            heat_on, heat_off, min_hold = defaults
+            values.update({
+                indoor_heat_option_key(group, profile, "heat_on_below"): heat_on,
+                indoor_heat_option_key(group, profile, "heat_off_at"): heat_off,
+                indoor_heat_option_key(group, profile, "min_hold_minutes"): min_hold,
+            })
+    for anchor in FLOOR_SLAB_ANCHOR_NAMES:
+        index, delta = DEFAULT_FLOOR_SLAB_ANCHORS[anchor]
+        values[floor_slab_anchor_option_key(anchor, "index")] = index
+        values[floor_slab_anchor_option_key(anchor, "delta")] = delta
     for band, config in policy.threshold_bands.items():
         values.update({
             threshold_option_key(band, "off_threshold"): config.off_threshold,
@@ -184,6 +232,9 @@ def option_specs() -> dict[str, OptionSpec]:
         OPT_LUX_REFERENCE: OptionSpec("float", defaults[OPT_LUX_REFERENCE], 1.0, None),
         OPT_FEELS_LIKE_DAMPING: OptionSpec("float", defaults[OPT_FEELS_LIKE_DAMPING], 0.0, 1.0),
         OPT_FORECAST_WEIGHT: OptionSpec("float", defaults[OPT_FORECAST_WEIGHT], 0.0, 1.0),
+        OPT_FLOOR_SLAB_MODE: OptionSpec("str", defaults[OPT_FLOOR_SLAB_MODE]),
+        OPT_FLOOR_SLAB_MIN_DELTA: OptionSpec("float", defaults[OPT_FLOOR_SLAB_MIN_DELTA], 0.0, 5.0),
+        OPT_FLOOR_SLAB_MAX_DELTA: OptionSpec("float", defaults[OPT_FLOOR_SLAB_MAX_DELTA], 0.0, 5.0),
         CONF_APPLY_COOLDOWN_SECONDS: OptionSpec("int", defaults[CONF_APPLY_COOLDOWN_SECONDS], 1, None),
         CONF_STARTUP_BLOCK_SECONDS: OptionSpec("int", defaults[CONF_STARTUP_BLOCK_SECONDS], 1, None),
         OPT_BATH_SETPOINT_PROTECTION: OptionSpec("float", defaults[OPT_BATH_SETPOINT_PROTECTION], 5.0, 30.0),
@@ -203,6 +254,14 @@ def option_specs() -> dict[str, OptionSpec]:
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: OptionSpec("int", defaults[OPT_BATH_FAN_STOSS_INTERVAL_HOURS], 1, None),
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: OptionSpec("int", defaults[OPT_BATH_FAN_STOSS_DURATION_MINUTES], 1, None),
     })
+    for key in (*INDOOR_LIVING_KEYS, *INDOOR_BATHROOM_KEYS):
+        if key.endswith("_min_hold_minutes"):
+            specs[key] = OptionSpec("int", defaults[key], 0, 240)
+        else:
+            specs[key] = OptionSpec("float", defaults[key], 5.0, 30.0)
+    for anchor in FLOOR_SLAB_ANCHOR_NAMES:
+        specs[floor_slab_anchor_option_key(anchor, "index")] = OptionSpec("float", defaults[floor_slab_anchor_option_key(anchor, "index")], -30.0, 35.0)
+        specs[floor_slab_anchor_option_key(anchor, "delta")] = OptionSpec("float", defaults[floor_slab_anchor_option_key(anchor, "delta")], 0.0, 5.0)
     for band in DEFAULT_THRESHOLD_BANDS:
         specs[threshold_option_key(band, "off_threshold")] = OptionSpec("float", defaults[threshold_option_key(band, "off_threshold")], 0.0, 35.0)
         specs[threshold_option_key(band, "comfort_threshold")] = OptionSpec("float", defaults[threshold_option_key(band, "comfort_threshold")], 0.0, 35.0)
@@ -225,9 +284,14 @@ def _as_bool(value: Any) -> bool:
     raise ValueError("muss true oder false sein")
 
 
-def _coerce_value(key: str, value: Any, spec: OptionSpec) -> float | int | bool:
+def _coerce_value(key: str, value: Any, spec: OptionSpec) -> float | int | bool | str:
     if spec.kind == "bool":
         return _as_bool(value)
+    if spec.kind == "str":
+        text = str(value)
+        if key == OPT_FLOOR_SLAB_MODE and text not in (FLOOR_SLAB_MODE_DYNAMIC_3DAY, FLOOR_SLAB_MODE_STATIC_FALLBACK):
+            raise ValueError("ungueltiger Bodenplatten-Modus")
+        return text
     if value in (None, ""):
         raise ValueError("darf nicht leer sein")
     try:
@@ -251,7 +315,7 @@ def _source_for(options: Mapping[str, Any], key: str) -> str:
     return "user option" if key in options else "default"
 
 
-def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float | int | bool]:
+def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float | int | bool | str]:
     options = options or {}
     defaults = default_option_values()
     policy = policy_tuning_from_options(options)
@@ -269,6 +333,9 @@ def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float |
         OPT_LUX_REFERENCE: policy.lux_reference,
         OPT_FEELS_LIKE_DAMPING: policy.feels_like_damping,
         OPT_FORECAST_WEIGHT: policy.forecast_weight,
+        OPT_FLOOR_SLAB_MODE: policy.floor_slab_mode,
+        OPT_FLOOR_SLAB_MIN_DELTA: policy.floor_slab_min_delta,
+        OPT_FLOOR_SLAB_MAX_DELTA: policy.floor_slab_max_delta,
         CONF_APPLY_COOLDOWN_SECONDS: int(options.get(CONF_APPLY_COOLDOWN_SECONDS, options.get(CONF_COOLDOWN_SECONDS, DEFAULT_COOLDOWN_SECONDS))),
         CONF_STARTUP_BLOCK_SECONDS: int(options.get(CONF_STARTUP_BLOCK_SECONDS, DEFAULT_STARTUP_BLOCK_SECONDS)),
         OPT_BATH_SETPOINT_PROTECTION: bath.setpoint_protection,
@@ -288,6 +355,16 @@ def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float |
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: bath.fan_stoss_interval_hours,
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: bath.fan_stoss_duration_minutes,
     })
+    for group, profiles in policy.indoor_heat_rules.items():
+        for profile, rule in profiles.items():
+            values.update({
+                indoor_heat_option_key(group, profile, "heat_on_below"): rule.heat_on_below,
+                indoor_heat_option_key(group, profile, "heat_off_at"): rule.heat_off_at,
+                indoor_heat_option_key(group, profile, "min_hold_minutes"): rule.min_hold_minutes,
+            })
+    for anchor, (index, delta) in zip(FLOOR_SLAB_ANCHOR_NAMES, policy.floor_slab_anchors):
+        values[floor_slab_anchor_option_key(anchor, "index")] = index
+        values[floor_slab_anchor_option_key(anchor, "delta")] = delta
     for band, config in policy.threshold_bands.items():
         values.update({
             threshold_option_key(band, "off_threshold"): config.off_threshold,
@@ -340,6 +417,23 @@ def _validate_threshold_order(values: Mapping[str, Any]) -> None:
             raise ValueError(f"{band}: boost_threshold darf nicht ueber comfort_threshold liegen")
 
 
+def _validate_indoor_heat_rules(values: Mapping[str, Any]) -> None:
+    for group, profiles in DEFAULT_INDOOR_HEAT_RULES.items():
+        for profile in profiles:
+            heat_on = float(values[indoor_heat_option_key(group, profile, "heat_on_below")])
+            heat_off = float(values[indoor_heat_option_key(group, profile, "heat_off_at")])
+            if heat_on >= heat_off:
+                raise ValueError(f"{group}/{profile}: heat_on_below muss unter heat_off_at liegen")
+
+
+def _validate_floor_slab_options(values: Mapping[str, Any]) -> None:
+    if float(values[OPT_FLOOR_SLAB_MIN_DELTA]) > float(values[OPT_FLOOR_SLAB_MAX_DELTA]):
+        raise ValueError("floor_slab_min_delta darf nicht ueber floor_slab_max_delta liegen")
+    indexes = [float(values[floor_slab_anchor_option_key(anchor, "index")]) for anchor in FLOOR_SLAB_ANCHOR_NAMES]
+    if indexes != sorted(indexes, reverse=True):
+        raise ValueError("floor_slab_anchor_index Werte muessen absteigend sortiert bleiben")
+
+
 def validated_options_update(
     current_options: Mapping[str, Any] | None,
     updates: Mapping[str, Any] | None = None,
@@ -376,5 +470,7 @@ def validated_options_update(
 
     merged = active_option_values(current)
     _validate_threshold_order(merged)
+    _validate_indoor_heat_rules(merged)
+    _validate_floor_slab_options(merged)
 
     return current

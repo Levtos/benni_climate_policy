@@ -103,8 +103,24 @@ def test_bathroom_over_target_forces_heating_off_even_when_fan_can_run():
 
     assert heating.profile == "off"
     assert heating.target_temperature == 10.0
-    assert heating.reason == "bath_over_target_forces_off"
+    assert heating.reason == "bath_temperature_above_target_no_heating"
+    assert heating.allowed_profile == "komfort"
+    assert heating.heat_demand is False
     assert fan.target_switch_state == "on"
+
+
+def test_bathroom_ground_heat_stops_when_room_is_warm_enough():
+    plan = decide_bathroom_climate(
+        climate_input(temp=20.3),
+        ctx(),
+        eff(10),
+        datetime(2026, 1, 1, 12),
+        bath_tuning_from_options({}),
+    )
+
+    assert plan.allowed_profile == "grundwaerme"
+    assert plan.profile == "off"
+    assert plan.reason == "bath_temperature_above_target_no_heating"
 
 
 def test_bathroom_outdoor_bonus_steps():

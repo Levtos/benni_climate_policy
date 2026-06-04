@@ -221,6 +221,47 @@ def test_safety_downshift_dry_run_and_real_apply_use_same_calls_despite_cooldown
     assert len(hass.services.calls) == 2
 
 
+def test_room_temperature_downshift_bypasses_cooldown_and_matches_dry_run():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    p = ZonePlan(
+        zone="living_room",
+        profile="off",
+        target_temperature=10.0,
+        raw_target_temperature=10.0,
+        reason="room_temperature_above_target_no_heating",
+        decision_path=["summer_june_july_august_only_off_or_spar", "room_temperature_above_target_no_heating"],
+    )
+
+    dry = asyncio.run(engine.async_apply_plan(
+        p,
+        target_entity_id="climate.hot_living",
+        gate=gate(
+            dry_run=True,
+            manual=True,
+            last_applied_hash=p.plan_hash,
+            last_apply_at=datetime(2026, 1, 1, 11, 55),
+            target_state="heat",
+        ),
+    ))
+    real = asyncio.run(engine.async_apply_plan(
+        p,
+        target_entity_id="climate.hot_living",
+        gate=gate(
+            manual=True,
+            last_applied_hash=p.plan_hash,
+            last_apply_at=datetime(2026, 1, 1, 11, 55),
+            target_state="heat",
+        ),
+    ))
+
+    assert dry.reason == "forced_safety_downshift"
+    assert real.reason == "forced_safety_downshift"
+    assert dry.details["safety_downshift_reason"] == "room_temperature_above_target_no_heating"
+    assert dry.service_calls == real.service_calls
+    assert [call["service"] for call in real.service_calls] == ["set_temperature", "set_hvac_mode"]
+
+
 def test_safety_downshift_apply_many_writes_living_and_kitchen():
     hass = _FakeHass()
     engine = ApplyEngine(hass)

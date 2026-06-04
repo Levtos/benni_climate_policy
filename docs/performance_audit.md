@@ -96,13 +96,13 @@ Beobachtung:
 Aktueller Live-Zustand:
 
 - `sensor.climate_forecast_temperature_3h` hat `source=entity`, `reason=configured_forecast_entity`.
-- `sensor.climate_outdoor_feels_like_temperature` hat `source=entity`, `reason=configured_feels_like_entity`.
-- `sensor.climate_effective_outdoor_temperature` zeigt in `forecast_resolution.last_fetch_at=null`.
+- `sensor.climate_outdoor_feels_like_temperature` wird inzwischen aus Rohwerten berechnet (`computed_apparent_temperature`) oder faellt markiert auf reale Aussentemperatur zurueck.
+- `sensor.climate_effective_outdoor_temperature` nutzt Forecast und Bodenplatten-Forecast gecached ueber den Weather-Resolver.
 
 Bewertung:
 
-- In diesem Setup wird `weather.get_forecasts(type=hourly)` aktuell nicht genutzt, weil eine Forecast-Entity konfiguriert ist.
-- Der PR-#14-Cache ist fuer den Weather-Service-Pfad vorhanden, aber im Live-Szenario nicht aktiv.
+- `weather.get_forecasts(type=hourly)` kann trotz Forecast-Entity fuer das dynamische Bodenplatten-Delta genutzt werden; der bestehende Cache verhindert Wiederholungsabfragen.
+- Fertige Feels-like-Entities sind kein fachlicher Input mehr; die Policy liest Rohwerte.
 
 ## Gefundene Hotspots
 

@@ -10,11 +10,14 @@ from custom_components.benni_climate_policy.models import (
     ZoneInput,
 )
 from custom_components.benni_climate_policy.policy import (
+    FloorSlabDeltaInput,
     OPT_LUX_REFERENCE,
     OPT_SETPOINT_SPAR,
+    dynamic_floor_slab_delta,
     default_policy_tuning,
     decide_zone,
     evaluate_room_comfort,
+    floor_slab_delta_for_cold_index,
     policy_tuning_from_options,
     policy_visibility_snapshot,
     setpoint_for,
@@ -56,7 +59,12 @@ def eff(temp):
 
 
 def zone(**kw):
-    return ZoneInput("living_room", room_temperature=kw.get("room_temperature", 20.0), thermostat_entity_id="climate.living")
+    return ZoneInput(
+        kw.get("zone", "living_room"),
+        room_temperature=kw.get("room_temperature", 20.0),
+        thermostat_entity_id=kw.get("thermostat_entity_id", "climate.living"),
+        last_mode=kw.get("last_mode"),
+    )
 
 
 def test_sleep_forces_off():
@@ -111,6 +119,53 @@ def test_june_july_august_allow_only_off_or_spar_and_disable_boost():
         plan = decide_zone(zone(room_temperature=16), ctx(), eff(0), datetime(2026, month, 1, 12))
         assert plan.profile == "spar"
         assert not plan.is_boost_active
+        assert plan.allowed_profile == "spar"
+        assert plan.heat_demand is True
+
+
+def test_summer_eco_allowed_but_room_above_heat_off_downshifts():
+    plan = decide_zone(zone(room_temperature=23.9), ctx(), eff(12.4), datetime(2026, 7, 1, 12))
+
+    assert plan.allowed_profile == "spar"
+    assert plan.profile == "off"
+    assert plan.target_temperature == 10.0
+    assert plan.reason == "room_temperature_above_target_no_heating"
+    assert plan.heat_demand is False
+
+
+def test_kitchen_uses_same_indoor_heat_demand_as_living_area():
+    plan = decide_zone(zone(zone="kitchen", room_temperature=23.9), ctx(), eff(12.4), datetime(2026, 7, 1, 12))
+
+    assert plan.allowed_profile == "spar"
+    assert plan.profile == "off"
+    assert plan.reason == "room_temperature_above_target_no_heating"
+
+
+def test_comfort_allowed_but_room_above_comfort_heat_off_downshifts():
+    plan = decide_zone(zone(room_temperature=23.3), ctx(), eff(10), datetime(2026, 1, 1, 12))
+
+    assert plan.allowed_profile == "komfort"
+    assert plan.profile == "off"
+    assert plan.reason == "room_temperature_above_target_no_heating"
+
+
+def test_indoor_heat_demand_below_heat_on_uses_allowed_profile():
+    plan = decide_zone(zone(room_temperature=19.8), ctx(), eff(12.4), datetime(2026, 7, 1, 12))
+
+    assert plan.allowed_profile == "spar"
+    assert plan.profile == "spar"
+    assert plan.heat_demand is True
+    assert plan.indoor_heat_demand_reason == "room_temperature_below_heat_on_below"
+
+
+def test_indoor_hysteresis_holds_last_state_between_thresholds():
+    warmish_off = decide_zone(zone(room_temperature=21.0, last_mode="off"), ctx(), eff(12.4), datetime(2026, 7, 1, 12))
+    warmish_heat = decide_zone(zone(room_temperature=21.0, last_mode="spar"), ctx(), eff(12.4), datetime(2026, 7, 1, 12))
+
+    assert warmish_off.profile == "off"
+    assert warmish_off.reason == "no_heat_demand"
+    assert warmish_heat.profile == "spar"
+    assert warmish_heat.indoor_heat_demand_reason == "indoor_hysteresis_holds_heat"
 
 
 def test_living_area_window_blocker_wins_over_summer_spar():
@@ -131,6 +186,7 @@ def test_living_area_window_blocker_wins_over_summer_spar():
             assert plan.profile == "off"
             assert plan.target_temperature == 10.0
             assert plan.reason == "window_blocks_heating"
+            assert plan.allowed_profile == "off"
 
 
 def test_terrace_door_sustained_open_delay_until_early_night():
@@ -240,6 +296,32 @@ def test_floor_slab_delta_zero_in_summer_changes_nothing():
     plan = decide_zone(zone(room_temperature=21), ctx(), eff(18), datetime(2026, 7, 1, 12))
     assert plan.floor_slab_delta == 0.0
     assert plan.raw_target_temperature == plan.target_temperature
+
+
+def test_dynamic_floor_slab_delta_anchor_points_and_interpolation():
+    assert floor_slab_delta_for_cold_index(12) == 0.0
+    assert floor_slab_delta_for_cold_index(4) == 1.0
+    assert floor_slab_delta_for_cold_index(-4) == 2.0
+    assert floor_slab_delta_for_cold_index(10) == 0.25
+    assert floor_slab_delta_for_cold_index(-2) == 1.75
+
+
+def test_dynamic_floor_slab_delta_fallback_and_plan_fields():
+    tuning = default_policy_tuning()
+    missing = dynamic_floor_slab_delta(FloorSlabDeltaInput(static_fallback_delta=1.0), tuning)
+    mild = dynamic_floor_slab_delta(
+        FloorSlabDeltaInput(yesterday_temperature=12, today_temperature=14, tomorrow_temperature=16, static_fallback_delta=2.0),
+        tuning,
+    )
+    plan = decide_zone(zone(room_temperature=19.0), ctx(), eff(10), datetime(2026, 1, 1, 12), floor_slab_delta=mild)
+
+    assert missing.current == 1.0
+    assert missing.quality == "fallback"
+    assert mild.current == 0.0
+    assert mild.quality == "ok"
+    assert plan.raw_target_temperature == plan.as_dict()["policy_target_temperature"]
+    assert plan.floor_slab_delta == plan.as_dict()["floor_slab_delta_current"]
+    assert plan.target_temperature == plan.as_dict()["thermostat_target_temperature"]
 
 
 def test_plan_hash_changes_when_floor_slab_delta_changes():
