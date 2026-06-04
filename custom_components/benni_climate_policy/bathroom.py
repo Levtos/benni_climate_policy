@@ -9,6 +9,13 @@ import math
 from typing import Any, Literal, Mapping
 
 from .models import ClimateContextSnapshot, EffectiveTemperatureBreakdown, ZonePlan
+from .policy import (
+    FloorSlabDeltaBreakdown,
+    PolicyTuning,
+    floor_slab_delta_for_month_breakdown,
+    indoor_heat_rule_for,
+    no_heat_demand_reason,
+)
 
 BathFanMode = Literal["off", "akut", "nachluft", "stoss"]
 
@@ -205,6 +212,7 @@ class BathroomClimateInput:
     room_temperature: float | None
     room_humidity: float | None
     thermostat_entity_id: str | None
+    last_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -338,6 +346,9 @@ def decide_bathroom_climate(
     effective: EffectiveTemperatureBreakdown,
     now: datetime,
     tuning: BathTuning,
+    *,
+    indoor_tuning: PolicyTuning | None = None,
+    floor_slab_delta: FloorSlabDeltaBreakdown | None = None,
 ) -> ZonePlan:
     blockers: list[str] = []
     path: list[str] = []
@@ -373,7 +384,36 @@ def decide_bathroom_climate(
         else:
             path.append(reason)
 
-    if (
+    allowed_profile = profile
+    allowed_reason = reason
+    heat_demand: bool | None = False if profile == "off" else None
+    indoor_reason: str | None = "candidate_profile_off" if profile == "off" else None
+    indoor_rule = indoor_heat_rule_for("bathroom", profile, indoor_tuning) if profile != "protection" else None
+    if profile != "protection" and indoor_rule is not None:
+        if inp.room_temperature is None:
+            heat_demand = True
+            indoor_reason = "room_temperature_missing_allows_candidate"
+        elif inp.room_temperature >= indoor_rule.heat_off_at:
+            profile = "off"
+            target = BATH_SETPOINT_OFF
+            reason = no_heat_demand_reason("bathroom")
+            path.append(reason)
+            heat_demand = False
+            indoor_reason = "room_temperature_above_heat_off_at"
+        elif inp.room_temperature < indoor_rule.heat_on_below:
+            heat_demand = True
+            indoor_reason = "room_temperature_below_heat_on_below"
+        elif inp.last_mode == "off":
+            profile = "off"
+            target = BATH_SETPOINT_OFF
+            reason = "no_heat_demand"
+            path.append(reason)
+            heat_demand = False
+            indoor_reason = "indoor_hysteresis_holds_off"
+        else:
+            heat_demand = True
+            indoor_reason = "indoor_hysteresis_holds_heat" if inp.last_mode in ("grundwaerme", "komfort") else "indoor_hysteresis_initial_allows_heat"
+    elif (
         inp.room_temperature is not None
         and profile != "protection"
         and inp.room_temperature >= target + BATH_OVER_TARGET_HYSTERESIS
@@ -382,6 +422,10 @@ def decide_bathroom_climate(
         target = BATH_SETPOINT_OFF
         reason = "bath_over_target_forces_off"
         path.append(reason)
+        heat_demand = False
+        indoor_reason = "legacy_bath_over_target_hysteresis"
+
+    slab = floor_slab_delta or floor_slab_delta_for_month_breakdown(now.month, indoor_tuning)
 
     return ZonePlan(
         zone="bathroom",
@@ -393,10 +437,22 @@ def decide_bathroom_climate(
         blocked_by=blockers,
         input_quality="ok" if teff is not None else "degraded",
         effective_outdoor_temperature=teff,
+        floor_slab_delta=slab.current,
+        floor_slab_delta_source=slab.source,
+        floor_slab_delta_quality=slab.quality,
+        floor_slab_delta_reason=slab.reason,
+        floor_slab_cold_index=slab.cold_index,
         hysteresis_state=profile,
+        allowed_profile=allowed_profile,
+        allowed_reason=allowed_reason,
+        heat_demand=heat_demand,
+        indoor_heat_demand_reason=indoor_reason,
+        indoor_heat_on_below=indoor_rule.heat_on_below if indoor_rule else None,
+        indoor_heat_off_at=indoor_rule.heat_off_at if indoor_rule else None,
+        indoor_min_hold_minutes=indoor_rule.min_hold_minutes if indoor_rule else None,
         last_calculated=now.isoformat(),
         apply_block_reason=", ".join(blockers) if blockers else "none",
-        policy_config_hash=tuning.signature,
+        policy_config_hash=f"{tuning.signature}:{indoor_tuning.signature if indoor_tuning else 'default'}",
     )
 
 

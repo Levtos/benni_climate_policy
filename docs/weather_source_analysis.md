@@ -176,9 +176,10 @@ Wenn keine echte `feels_like`-Quelle konfiguriert oder gefunden wird, ist ein sa
 
 Aus dem Live-Stand ergibt sich diese Strategie:
 
-1. Bestehende Entity-Konfiguration weiter respektieren.
-   - Wenn `forecast_temperature_3h` als Entity konfiguriert ist, diesen Wert weiterhin verwenden.
-   - Wenn `outdoor_feels_like` als Entity konfiguriert ist, diesen Wert weiterhin verwenden.
+1. Bestehende Rohwert-Konfiguration respektieren.
+   - Wenn `forecast_temperature_3h` als Entity konfiguriert ist, diesen Wert weiterhin fuer +3h verwenden.
+   - `outdoor_feels_like` bleibt nur als veralteter Config-Wert kompatibel und wird nicht mehr als fachlicher Input genutzt.
+   - Gefuehlte Aussentemperatur entsteht intern aus realer Aussentemperatur, Aussenluftfeuchte und Wind.
 
 2. Zusaetzlich einen read-only Weather Resolver fuer DWD/HA-Weather ergaenzen.
    - Neuer optionaler Config-/Options-Wert fuer eine Weather-Entity, z. B. `weather_entity`.

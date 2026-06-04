@@ -6,12 +6,16 @@ from datetime import datetime, timedelta, timezone
 from custom_components.benni_climate_policy.const import (
     CONF_FORECAST_TEMPERATURE,
     CONF_OUTDOOR_FEELS_LIKE,
+    CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_WIND_SPEED,
     CONF_WEATHER_ENTITY,
 )
 from custom_components.benni_climate_policy.weather_resolver import (
     AUTO_WEATHER_ENTITY,
     DEFAULT_FORECAST_CACHE_TTL_SECONDS,
     WeatherResolver,
+    apparent_temperature_celsius,
     fallback_feels_like,
     fallback_forecast,
     looks_hourly_forecast,
@@ -84,7 +88,13 @@ def test_user_configured_forecast_entity_has_priority():
 
     assert result.forecast_temperature == 12.5
     assert result.forecast.source == "entity"
-    assert hass.services.calls == []
+    assert hass.services.calls == [{
+        "domain": "weather",
+        "service": "get_forecasts",
+        "data": {"entity_id": AUTO_WEATHER_ENTITY, "type": "hourly"},
+        "blocking": True,
+        "return_response": True,
+    }]
 
 
 def test_self_generated_forecast_sensor_is_not_used_as_external_input():
@@ -113,16 +123,29 @@ def test_self_generated_forecast_sensor_is_not_used_as_external_input():
     assert hass.services.calls[0]["data"] == {"entity_id": AUTO_WEATHER_ENTITY, "type": "hourly"}
 
 
-def test_user_configured_feels_like_entity_has_priority():
-    hass = _Hass({"sensor.feels": "8.5"})
+def test_configured_feels_like_entity_is_ignored_for_raw_only_policy():
+    hass = _Hass({
+        "sensor.feels": "8.5",
+        "sensor.outdoor_humidity": "70",
+        "sensor.outdoor_wind": "10",
+    })
 
-    result = _run(WeatherResolver(hass, {CONF_OUTDOOR_FEELS_LIKE: "sensor.feels"}).async_resolve(
+    result = _run(WeatherResolver(
+        hass,
+        {
+            CONF_OUTDOOR_FEELS_LIKE: "sensor.feels",
+            CONF_OUTDOOR_TEMPERATURE: "sensor.outdoor_temp",
+            CONF_OUTDOOR_HUMIDITY: "sensor.outdoor_humidity",
+            CONF_OUTDOOR_WIND_SPEED: "sensor.outdoor_wind",
+        },
+    ).async_resolve(
         real_temperature=10.0,
         now=datetime(2026, 6, 2, 14, tzinfo=timezone.utc),
     ))
 
-    assert result.feels_like_temperature == 8.5
-    assert result.feels_like.source == "entity"
+    assert result.feels_like_temperature == apparent_temperature_celsius(10.0, 70.0, 10.0 / 3.6)
+    assert result.feels_like.source == "computed_apparent_temperature"
+    assert result.feels_like.reason == "computed_from_raw_temperature_humidity_wind"
     assert result.feels_like.fallback_used is False
 
 
@@ -139,6 +162,22 @@ def test_self_generated_feels_like_sensor_is_not_used_as_external_input():
 
     assert result.feels_like_temperature == 10.0
     assert result.feels_like.source == "fallback_real_temperature"
+
+
+def test_missing_raw_feels_like_inputs_fall_back_without_crashing():
+    hass = _Hass({"sensor.outdoor_humidity": "70"})
+
+    result = _run(WeatherResolver(
+        hass,
+        {CONF_OUTDOOR_HUMIDITY: "sensor.outdoor_humidity", CONF_OUTDOOR_WIND_SPEED: "sensor.missing_wind"},
+    ).async_resolve(
+        real_temperature=14.9,
+        now=datetime(2026, 6, 2, 14, tzinfo=timezone.utc),
+    ))
+
+    assert result.feels_like_temperature == 14.9
+    assert result.feels_like.source == "fallback_real_temperature"
+    assert result.feels_like.reason == "raw_humidity_or_wind_missing"
 
 
 def test_forecast_3h_is_resolved_from_hourly_weather_forecast():

@@ -27,8 +27,10 @@ from .const import (
     CONF_LIVING_WINDOW_RIGHT_OPEN,
     CONF_LIVING_WINDOW_RIGHT_TILT,
     CONF_OUTDOOR_FEELS_LIKE,
+    CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_LUX,
     CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_WIND_SPEED,
     CONF_STARTUP_BLOCK_SECONDS,
     CONF_SUN,
     CONF_SYSTEM_READY,
@@ -68,12 +70,15 @@ from .models import (
 from .options import apply_cooldown_seconds_from_config
 from .policy import (
     decide_zone,
+    dynamic_floor_slab_delta,
     effective_outdoor_temperature,
     empty_context,
     evaluate_room_comfort,
+    FloorSlabDeltaBreakdown,
+    FloorSlabDeltaInput,
+    floor_slab_delta_for_month,
     policy_tuning_from_options,
     policy_visibility_snapshot,
-    floor_slab_delta_for_month,
     setpoint_for,
     thermostat_target_for,
     threshold_for_month_config,
@@ -95,6 +100,10 @@ IMMEDIATE_DECISION_REASONS = {
     "presence_far_forces_off",
     "passing_through_blocks_preheat",
     "dynamic_wakeup_cutoff",
+    "room_temperature_above_target_no_heating",
+    "living_area_temperature_above_target_no_heating",
+    "bath_temperature_above_target_no_heating",
+    "no_heat_demand",
     "presence_preheat_caps_to_spar",
     "free_time_early_night_holds_comfort",
     "night_temperature_ramp_late_evening",
@@ -126,7 +135,8 @@ def _input_role(key: str) -> str:
         return "context"
     if key in (
         CONF_OUTDOOR_TEMPERATURE,
-        CONF_OUTDOOR_FEELS_LIKE,
+        CONF_OUTDOOR_HUMIDITY,
+        CONF_OUTDOOR_WIND_SPEED,
         CONF_FORECAST_TEMPERATURE,
         CONF_WEATHER_ENTITY,
         CONF_WEATHER_CONDITION,
@@ -183,13 +193,15 @@ class ClimatePolicyCoordinator:
         self.last_bath_fan_active_at: datetime | None = None
         self._last_good_numeric: dict[str, tuple[float, datetime]] = {}
         self._numeric_fallback_keys: set[str] = set()
-        self._zone_profile_state: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
-        self._zone_profile_reason: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
+        self._zone_profile_state: dict[str, str | None] = {zone: None for zone in (*HEATING_ZONES, ZONE_BATHROOM)}
+        self._zone_profile_reason: dict[str, str | None] = {zone: None for zone in (*HEATING_ZONES, ZONE_BATHROOM)}
         self._zone_hysteresis_pending: dict[str, tuple[str, str, datetime]] = {}
         self._boost_until: dict[str, datetime | None] = {zone: None for zone in HEATING_ZONES}
         self._boost_reason: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
         self._last_day_state: str | None = None
         self._last_bathroom_humidity_sample: tuple[float, datetime] | None = None
+        self._floor_slab_daily_samples: dict[str, float] = {}
+        self.floor_slab_delta: FloorSlabDeltaBreakdown | None = None
         self.last_evaluate_duration_ms: float | None = None
         self.evaluate_duration_samples_ms: list[float] = []
         self.last_apply_duration_ms: float | None = None
@@ -197,7 +209,7 @@ class ClimatePolicyCoordinator:
 
     @property
     def config(self) -> dict[str, Any]:
-        return {**self.entry.data, **self.entry.options}
+        return {**PRESET, **self.entry.data, **self.entry.options}
 
     @property
     def apply_active(self) -> bool:
@@ -242,7 +254,11 @@ class ClimatePolicyCoordinator:
         else:
             self._unsub.append(self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._on_started))
 
-        watch = {v for v in self.config.values() if _is_watchable_entity_id(v)}
+        watch = {
+            value
+            for key, value in self.config.items()
+            if key != CONF_OUTDOOR_FEELS_LIKE and _is_watchable_entity_id(value)
+        }
         if watch:
             self._unsub.append(async_track_state_change_event(self.hass, list(watch), self._on_state_change))
         self._unsub.append(async_track_time_interval(self.hass, self._on_interval, timedelta(minutes=15)))
@@ -354,10 +370,12 @@ class ClimatePolicyCoordinator:
         weather_resolution = self.weather_resolution.as_dict() if self.weather_resolution else None
         return {
             "real_temperature": self._float_state(CONF_OUTDOOR_TEMPERATURE),
+            "outdoor_humidity": self._float_state(CONF_OUTDOOR_HUMIDITY),
+            "outdoor_wind_speed": self._float_state(CONF_OUTDOOR_WIND_SPEED),
             "feels_like_temperature": (
                 self.weather_resolution.feels_like_temperature
                 if self.weather_resolution
-                else self._float_state(CONF_OUTDOOR_FEELS_LIKE)
+                else None
             ),
             "forecast_temperature": (
                 self.weather_resolution.forecast_temperature
@@ -369,7 +387,9 @@ class ClimatePolicyCoordinator:
             "sun_elevation": self._sun_elevation(),
             "source_entities": {
                 "real_temperature": self.config.get(CONF_OUTDOOR_TEMPERATURE),
-                "feels_like_temperature": self.config.get(CONF_OUTDOOR_FEELS_LIKE),
+                "outdoor_humidity": self.config.get(CONF_OUTDOOR_HUMIDITY),
+                "outdoor_wind_speed": self.config.get(CONF_OUTDOOR_WIND_SPEED),
+                "feels_like_temperature": "computed_from_raw_weather_inputs",
                 "forecast_temperature": self.config.get(CONF_FORECAST_TEMPERATURE),
                 "weather_entity": self.config.get(CONF_WEATHER_ENTITY),
                 "weather_condition": self.config.get(CONF_WEATHER_CONDITION),
@@ -379,6 +399,8 @@ class ClimatePolicyCoordinator:
             "forecast_resolution": weather_resolution.get("forecast") if weather_resolution else None,
             "feels_like_resolution": weather_resolution.get("feels_like") if weather_resolution else None,
             "weather_resolution": weather_resolution,
+            "floor_slab_delta": self.floor_slab_delta.as_dict() if self.floor_slab_delta else None,
+            "floor_slab_forecast_resolution": weather_resolution.get("floor_slab_forecast") if weather_resolution else None,
             "sun_state": sun_state.state if sun_state else None,
         }
 
@@ -410,6 +432,8 @@ class ClimatePolicyCoordinator:
         self._numeric_fallback_keys.clear()
         context = ContextResolver(self.hass, self.config).resolve()
         real_temperature = self._float_state(CONF_OUTDOOR_TEMPERATURE)
+        outdoor_humidity = self._float_state(CONF_OUTDOOR_HUMIDITY)
+        outdoor_wind_speed = self._float_state(CONF_OUTDOOR_WIND_SPEED)
         forecast_started = time.perf_counter()
         self.weather_resolution = await WeatherResolver(
             self.hass,
@@ -418,9 +442,18 @@ class ClimatePolicyCoordinator:
             forecast_cache_ttl_seconds=DEFAULT_FORECAST_CACHE_TTL_SECONDS,
         ).async_resolve(
             real_temperature=real_temperature,
+            outdoor_humidity=outdoor_humidity,
+            outdoor_wind_speed=outdoor_wind_speed,
             now=now,
         )
         self.last_forecast_duration_ms = round((time.perf_counter() - forecast_started) * 1000, 2)
+        self._record_floor_slab_daily_sample(now, real_temperature)
+        self.floor_slab_delta = self._floor_slab_delta_breakdown(
+            now,
+            real_temperature,
+            self.weather_resolution.floor_slab_tomorrow_temperature,
+            tuning,
+        )
         effective = effective_outdoor_temperature(
             EffectiveTemperatureInput(
                 real_temperature=real_temperature,
@@ -439,7 +472,8 @@ class ClimatePolicyCoordinator:
         )
         if self._numeric_fallback_keys & {
             CONF_OUTDOOR_TEMPERATURE,
-            CONF_OUTDOOR_FEELS_LIKE,
+            CONF_OUTDOOR_HUMIDITY,
+            CONF_OUTDOOR_WIND_SPEED,
             CONF_FORECAST_TEMPERATURE,
             CONF_OUTDOOR_LUX,
         }:
@@ -449,11 +483,19 @@ class ClimatePolicyCoordinator:
             ZONE_KITCHEN: self._zone_input(ZONE_KITCHEN),
         }
         bathroom_input = self._bathroom_climate_input()
-        bathroom_plan = decide_bathroom_climate(bathroom_input, context, effective, now, bath_tuning)
-        bathroom_plan = self._apply_floor_slab_context(bathroom_plan, bathroom_input, now, tuning)
+        bathroom_plan = decide_bathroom_climate(
+            bathroom_input,
+            context,
+            effective,
+            now,
+            bath_tuning,
+            indoor_tuning=tuning,
+            floor_slab_delta=self.floor_slab_delta,
+        )
+        bathroom_plan = self._apply_floor_slab_context(bathroom_plan, bathroom_input, self.floor_slab_delta)
         plans = {
-            ZONE_LIVING: decide_zone(zone_inputs[ZONE_LIVING], context, effective, now, tuning=tuning),
-            ZONE_KITCHEN: decide_zone(zone_inputs[ZONE_KITCHEN], context, effective, now, tuning=tuning),
+            ZONE_LIVING: decide_zone(zone_inputs[ZONE_LIVING], context, effective, now, tuning=tuning, floor_slab_delta=self.floor_slab_delta),
+            ZONE_KITCHEN: decide_zone(zone_inputs[ZONE_KITCHEN], context, effective, now, tuning=tuning, floor_slab_delta=self.floor_slab_delta),
             ZONE_BATHROOM: bathroom_plan,
         }
         for zone_id in HEATING_ZONES:
@@ -477,6 +519,36 @@ class ClimatePolicyCoordinator:
         if auto_apply and self.apply_active:
             await self.async_apply(manual=False, dry_run=False, refresh=False)
         return self.decision
+
+    def _record_floor_slab_daily_sample(self, now: datetime, real_temperature: float | None) -> None:
+        if real_temperature is None:
+            return
+        self._floor_slab_daily_samples[now.date().isoformat()] = real_temperature
+        cutoff = now.date() - timedelta(days=3)
+        self._floor_slab_daily_samples = {
+            key: value
+            for key, value in self._floor_slab_daily_samples.items()
+            if datetime.fromisoformat(key).date() >= cutoff
+        }
+
+    def _floor_slab_delta_breakdown(
+        self,
+        now: datetime,
+        real_temperature: float | None,
+        forecast_temperature: float | None,
+        tuning: Any,
+    ) -> FloorSlabDeltaBreakdown:
+        yesterday_key = (now.date() - timedelta(days=1)).isoformat()
+        static_fallback = floor_slab_delta_for_month(now.month, tuning)
+        return dynamic_floor_slab_delta(
+            FloorSlabDeltaInput(
+                yesterday_temperature=self._floor_slab_daily_samples.get(yesterday_key),
+                today_temperature=real_temperature,
+                tomorrow_temperature=forecast_temperature,
+                static_fallback_delta=static_fallback,
+            ),
+            tuning,
+        )
 
     def _living_area_windows(self) -> tuple[WindowState, ...]:
         return (
@@ -522,10 +594,11 @@ class ClimatePolicyCoordinator:
             room_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=zone)),
             thermostat_entity_id=self.config.get(CONF_ZONE_THERMOSTAT.format(zone=zone)),
             windows=windows,
+            last_mode=self._zone_profile_state.get(zone),
         )
 
-    def _apply_floor_slab_context(self, plan: ZonePlan, inp: BathroomClimateInput, now: datetime, tuning: Any) -> ZonePlan:
-        delta = floor_slab_delta_for_month(now.month, tuning)
+    def _apply_floor_slab_context(self, plan: ZonePlan, inp: BathroomClimateInput, slab: FloorSlabDeltaBreakdown) -> ZonePlan:
+        delta = slab.current
         policy_target = plan.raw_target_temperature
         thermostat_target = thermostat_target_for(policy_target, plan.profile, delta)
         return replace(
@@ -533,6 +606,10 @@ class ClimatePolicyCoordinator:
             target_temperature=thermostat_target,
             raw_target_temperature=policy_target,
             floor_slab_delta=delta,
+            floor_slab_delta_source=slab.source,
+            floor_slab_delta_quality=slab.quality,
+            floor_slab_delta_reason=slab.reason,
+            floor_slab_cold_index=slab.cold_index,
             room_comfort=evaluate_room_comfort(inp.room_temperature, inp.room_humidity, delta),
         )
 
@@ -577,7 +654,7 @@ class ClimatePolicyCoordinator:
         return None
 
     def _hold_hysteresis_plan(self, plan: ZonePlan, previous: str, reason: str, now: datetime, tuning: Any) -> ZonePlan:
-        delta = floor_slab_delta_for_month(now.month, tuning)
+        delta = plan.floor_slab_delta
         policy_target = setpoint_for(previous, plan.effective_outdoor_temperature, tuning)
         target = thermostat_target_for(policy_target, previous, delta)
         return replace(
@@ -622,7 +699,7 @@ class ClimatePolicyCoordinator:
         return plan
 
     def _boosted_plan(self, plan: ZonePlan, now: datetime, until: datetime, reason: str, tuning: Any) -> ZonePlan:
-        delta = floor_slab_delta_for_month(now.month, tuning)
+        delta = plan.floor_slab_delta
         policy_target = setpoint_for("boost", plan.effective_outdoor_temperature, tuning)
         target = thermostat_target_for(policy_target, "boost", delta)
         return replace(
@@ -678,7 +755,7 @@ class ClimatePolicyCoordinator:
                 self._boost_reason[zone_id] = None
                 active_until = None
             if plan.profile == "boost" and self._zone_profile_state.get(zone_id) == "boost" and active_until is None:
-                delta = floor_slab_delta_for_month(now.month, tuning)
+                delta = plan.floor_slab_delta
                 policy_target = setpoint_for("komfort", plan.effective_outdoor_temperature, tuning)
                 target = thermostat_target_for(policy_target, "komfort", delta)
                 plans[zone_id] = replace(
@@ -718,7 +795,7 @@ class ClimatePolicyCoordinator:
             plans[zone_id] = self._boosted_plan(plan, now, until, start_reason, tuning)
 
     def _commit_zone_profiles(self, plans: dict[str, ZonePlan]) -> None:
-        for zone_id in HEATING_ZONES:
+        for zone_id in (*HEATING_ZONES, ZONE_BATHROOM):
             plan = plans[zone_id]
             self._zone_profile_state[zone_id] = plan.profile
             self._zone_profile_reason[zone_id] = plan.reason
@@ -728,6 +805,7 @@ class ClimatePolicyCoordinator:
             room_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM)),
             room_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM)),
             thermostat_entity_id=self.config.get(CONF_ZONE_THERMOSTAT.format(zone=ZONE_BATHROOM)),
+            last_mode=self._zone_profile_state.get(ZONE_BATHROOM),
         )
 
     def _bathroom_humidity_input(self) -> BathroomHumidityInput:

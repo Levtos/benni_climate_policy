@@ -47,6 +47,36 @@ OPT_LUX_BONUS_MAX = "lux_bonus_max"
 OPT_LUX_REFERENCE = "lux_reference"
 OPT_FEELS_LIKE_DAMPING = "feels_like_damping"
 OPT_FORECAST_WEIGHT = "forecast_weight"
+OPT_FLOOR_SLAB_MODE = "floor_slab_mode"
+OPT_FLOOR_SLAB_MIN_DELTA = "floor_slab_min_delta"
+OPT_FLOOR_SLAB_MAX_DELTA = "floor_slab_max_delta"
+
+FLOOR_SLAB_MODE_DYNAMIC_3DAY = "dynamic_3day"
+FLOOR_SLAB_MODE_STATIC_FALLBACK = "static_fallback"
+
+FLOOR_SLAB_ANCHOR_NAMES = ("warm", "mild", "cool", "cold", "freezing")
+DEFAULT_FLOOR_SLAB_ANCHORS: dict[str, tuple[float, float]] = {
+    "warm": (12.0, 0.0),
+    "mild": (8.0, 0.5),
+    "cool": (4.0, 1.0),
+    "cold": (0.0, 1.5),
+    "freezing": (-4.0, 2.0),
+}
+
+INDOOR_GROUP_LIVING_AREA = "living_area"
+INDOOR_GROUP_BATHROOM = "bathroom"
+INDOOR_HEAT_FIELDS = ("heat_on_below", "heat_off_at", "min_hold_minutes")
+DEFAULT_INDOOR_HEAT_RULES: dict[str, dict[str, tuple[float, float, int]]] = {
+    INDOOR_GROUP_LIVING_AREA: {
+        "spar": (20.3, 22.0, 20),
+        "komfort": (21.7, 23.2, 30),
+        "boost": (22.0, 24.0, 15),
+    },
+    INDOOR_GROUP_BATHROOM: {
+        "grundwaerme": (18.5, 20.2, 20),
+        "komfort": (21.8, 23.2, 30),
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -101,11 +131,22 @@ TUNING_OPTION_KEYS = (
     OPT_LUX_REFERENCE,
     OPT_FEELS_LIKE_DAMPING,
     OPT_FORECAST_WEIGHT,
+    OPT_FLOOR_SLAB_MODE,
+    OPT_FLOOR_SLAB_MIN_DELTA,
+    OPT_FLOOR_SLAB_MAX_DELTA,
 )
 
 
 def threshold_option_key(band: str, field_name: str) -> str:
     return f"threshold_{band}_{field_name}"
+
+
+def indoor_heat_option_key(group: str, profile: str, field_name: str) -> str:
+    return f"indoor_{group}_{profile}_{field_name}"
+
+
+def floor_slab_anchor_option_key(anchor: str, field_name: str) -> str:
+    return f"floor_slab_anchor_{anchor}_{field_name}"
 
 
 def _float_option(
@@ -135,6 +176,26 @@ def _float_option(
     return value
 
 
+def _int_option(
+    options: Mapping[str, Any] | None,
+    key: str,
+    default: int,
+    sources: dict[str, str],
+    *,
+    min_value: int = 0,
+    max_value: int | None = None,
+) -> int:
+    value = _float_option(
+        options,
+        key,
+        float(default),
+        sources,
+        min_value=float(min_value),
+        max_value=float(max_value) if max_value is not None else None,
+    )
+    return int(value)
+
+
 def _bool_option(
     options: Mapping[str, Any] | None,
     key: str,
@@ -156,6 +217,69 @@ def _bool_option(
     return bool(value)
 
 
+def _str_option(
+    options: Mapping[str, Any] | None,
+    key: str,
+    default: str,
+    sources: dict[str, str],
+    *,
+    allowed: tuple[str, ...] = (),
+) -> str:
+    if options is None or key not in options:
+        sources[key] = "default"
+        return default
+    value = str(options[key])
+    if allowed and value not in allowed:
+        sources[key] = "invalid_fallback_default"
+        return default
+    sources[key] = "user option"
+    return value
+
+
+@dataclass(frozen=True)
+class IndoorHeatRule:
+    heat_on_below: float
+    heat_off_at: float
+    min_hold_minutes: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "heat_on_below": self.heat_on_below,
+            "heat_off_at": self.heat_off_at,
+            "min_hold_minutes": self.min_hold_minutes,
+        }
+
+
+@dataclass(frozen=True)
+class FloorSlabDeltaInput:
+    yesterday_temperature: float | None = None
+    today_temperature: float | None = None
+    tomorrow_temperature: float | None = None
+    static_fallback_delta: float = 0.0
+
+
+@dataclass(frozen=True)
+class FloorSlabDeltaBreakdown:
+    current: float
+    source: str
+    quality: str
+    reason: str
+    cold_index: float | None = None
+    components: dict[str, float] = field(default_factory=dict)
+    anchors: list[dict[str, float]] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "floor_slab_delta_current": self.current,
+            "floor_slab_delta_source": self.source,
+            "floor_slab_delta_quality": self.quality,
+            "floor_slab_delta_reason": self.reason,
+            "floor_slab_cold_index": self.cold_index,
+            "floor_slab_delta_components": dict(self.components),
+            "floor_slab_delta_anchors": [dict(item) for item in self.anchors],
+        }
+
+
 @dataclass(frozen=True)
 class PolicyTuning:
     setpoint_off: float = SETPOINT_OFF
@@ -170,6 +294,11 @@ class PolicyTuning:
     feels_like_damping: float = FEELS_LIKE_DAMPING
     forecast_weight: float = FORECAST_WEIGHT
     threshold_bands: dict[str, ThresholdBand] = field(default_factory=lambda: DEFAULT_THRESHOLD_BANDS.copy())
+    indoor_heat_rules: dict[str, dict[str, IndoorHeatRule]] = field(default_factory=dict)
+    floor_slab_mode: str = FLOOR_SLAB_MODE_DYNAMIC_3DAY
+    floor_slab_min_delta: float = 0.0
+    floor_slab_max_delta: float = 2.0
+    floor_slab_anchors: tuple[tuple[float, float], ...] = tuple(DEFAULT_FLOOR_SLAB_ANCHORS.values())
     sources: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -189,6 +318,14 @@ class PolicyTuning:
                 "lux_reference": self.lux_reference,
                 "feels_like_damping": self.feels_like_damping,
                 "forecast_weight": self.forecast_weight,
+                "floor_slab_mode": self.floor_slab_mode,
+                "floor_slab_min_delta": self.floor_slab_min_delta,
+                "floor_slab_max_delta": self.floor_slab_max_delta,
+                "floor_slab_anchors": list(self.floor_slab_anchors),
+            },
+            "indoor_heat_rules": {
+                group: {profile: rule.as_dict() for profile, rule in profiles.items()}
+                for group, profiles in sorted(self.indoor_heat_rules.items())
             },
             "threshold_bands": {key: band.as_dict() for key, band in sorted(self.threshold_bands.items())},
         }
@@ -256,6 +393,58 @@ def policy_tuning_from_options(options: Mapping[str, Any] | None) -> PolicyTunin
                 max_value=5.0,
             ),
         )
+    indoor_heat_rules: dict[str, dict[str, IndoorHeatRule]] = {}
+    for group, profiles in DEFAULT_INDOOR_HEAT_RULES.items():
+        indoor_heat_rules[group] = {}
+        for profile, defaults in profiles.items():
+            heat_on, heat_off, min_hold = defaults
+            indoor_heat_rules[group][profile] = IndoorHeatRule(
+                heat_on_below=_float_option(
+                    options,
+                    indoor_heat_option_key(group, profile, "heat_on_below"),
+                    heat_on,
+                    sources,
+                    min_value=5.0,
+                    max_value=30.0,
+                ),
+                heat_off_at=_float_option(
+                    options,
+                    indoor_heat_option_key(group, profile, "heat_off_at"),
+                    heat_off,
+                    sources,
+                    min_value=5.0,
+                    max_value=30.0,
+                ),
+                min_hold_minutes=_int_option(
+                    options,
+                    indoor_heat_option_key(group, profile, "min_hold_minutes"),
+                    min_hold,
+                    sources,
+                    min_value=0,
+                    max_value=240,
+                ),
+            )
+    floor_slab_anchors = tuple(
+        (
+            _float_option(
+                options,
+                floor_slab_anchor_option_key(anchor, "index"),
+                DEFAULT_FLOOR_SLAB_ANCHORS[anchor][0],
+                sources,
+                min_value=-30.0,
+                max_value=35.0,
+            ),
+            _float_option(
+                options,
+                floor_slab_anchor_option_key(anchor, "delta"),
+                DEFAULT_FLOOR_SLAB_ANCHORS[anchor][1],
+                sources,
+                min_value=0.0,
+                max_value=5.0,
+            ),
+        )
+        for anchor in FLOOR_SLAB_ANCHOR_NAMES
+    )
     return PolicyTuning(
         setpoint_off=_float_option(options, OPT_SETPOINT_OFF, SETPOINT_OFF, sources, min_value=5.0, max_value=30.0),
         setpoint_spar=_float_option(options, OPT_SETPOINT_SPAR, SETPOINT_SPAR, sources, min_value=5.0, max_value=30.0),
@@ -283,6 +472,17 @@ def policy_tuning_from_options(options: Mapping[str, Any] | None) -> PolicyTunin
         feels_like_damping=_float_option(options, OPT_FEELS_LIKE_DAMPING, FEELS_LIKE_DAMPING, sources, min_value=0.0, max_value=1.0),
         forecast_weight=_float_option(options, OPT_FORECAST_WEIGHT, FORECAST_WEIGHT, sources, min_value=0.0, max_value=1.0),
         threshold_bands=threshold_bands,
+        indoor_heat_rules=indoor_heat_rules,
+        floor_slab_mode=_str_option(
+            options,
+            OPT_FLOOR_SLAB_MODE,
+            FLOOR_SLAB_MODE_DYNAMIC_3DAY,
+            sources,
+            allowed=(FLOOR_SLAB_MODE_DYNAMIC_3DAY, FLOOR_SLAB_MODE_STATIC_FALLBACK),
+        ),
+        floor_slab_min_delta=_float_option(options, OPT_FLOOR_SLAB_MIN_DELTA, 0.0, sources, min_value=0.0, max_value=5.0),
+        floor_slab_max_delta=_float_option(options, OPT_FLOOR_SLAB_MAX_DELTA, 2.0, sources, min_value=0.0, max_value=5.0),
+        floor_slab_anchors=floor_slab_anchors,
         sources=sources,
     )
 
@@ -386,6 +586,103 @@ def floor_slab_delta_for_month(month: int, tuning: PolicyTuning | None = None) -
     return tuning.threshold_bands[monthly_band(month)].floor_slab_delta
 
 
+def floor_slab_delta_for_month_breakdown(month: int, tuning: PolicyTuning | None = None) -> FloorSlabDeltaBreakdown:
+    value = floor_slab_delta_for_month(month, tuning)
+    return FloorSlabDeltaBreakdown(
+        current=value,
+        source="static_month_band",
+        quality="fallback",
+        reason="static_season_band_fallback",
+        cold_index=None,
+        components={},
+    )
+
+
+def floor_slab_delta_for_cold_index(
+    cold_index: float,
+    anchors: tuple[tuple[float, float], ...] | None = None,
+    *,
+    min_delta: float = 0.0,
+    max_delta: float = 2.0,
+) -> float:
+    """Interpolate the current floor slab delta from a cold-index anchor curve."""
+    curve = sorted(anchors or tuple(DEFAULT_FLOOR_SLAB_ANCHORS.values()), key=lambda item: item[0], reverse=True)
+    if not curve:
+        return 0.0
+    if cold_index >= curve[0][0]:
+        value = curve[0][1]
+    elif cold_index <= curve[-1][0]:
+        value = curve[-1][1]
+    else:
+        value = curve[-1][1]
+        for (warm_index, warm_delta), (cold_index_anchor, cold_delta) in zip(curve, curve[1:]):
+            if warm_index >= cold_index >= cold_index_anchor:
+                span = warm_index - cold_index_anchor
+                ratio = 0.0 if span == 0 else (warm_index - cold_index) / span
+                value = warm_delta + (cold_delta - warm_delta) * ratio
+                break
+    lower = min(min_delta, max_delta)
+    upper = max(min_delta, max_delta)
+    return round(max(lower, min(upper, value)), 2)
+
+
+def dynamic_floor_slab_delta(
+    inp: FloorSlabDeltaInput,
+    tuning: PolicyTuning | None = None,
+) -> FloorSlabDeltaBreakdown:
+    """Calculate a lightweight 3-day floor-slab delta without recorder history polling."""
+    tuning = tuning or default_policy_tuning()
+    anchors_payload = [
+        {"cold_index": round(index, 2), "delta": round(delta, 2)}
+        for index, delta in tuning.floor_slab_anchors
+    ]
+    if tuning.floor_slab_mode == FLOOR_SLAB_MODE_STATIC_FALLBACK:
+        return FloorSlabDeltaBreakdown(
+            current=round(inp.static_fallback_delta, 2),
+            source="static_fallback",
+            quality="fallback",
+            reason="static_floor_slab_mode",
+            anchors=anchors_payload,
+        )
+
+    components = {
+        key: value
+        for key, value in {
+            "yesterday": inp.yesterday_temperature,
+            "today": inp.today_temperature,
+            "tomorrow": inp.tomorrow_temperature,
+        }.items()
+        if value is not None
+    }
+    if not components:
+        return FloorSlabDeltaBreakdown(
+            current=round(inp.static_fallback_delta, 2),
+            source="static_month_band",
+            quality="fallback",
+            reason="floor_slab_temperature_inputs_missing",
+            anchors=anchors_payload,
+        )
+
+    cold_index = round(sum(components.values()) / len(components), 2)
+    value = floor_slab_delta_for_cold_index(
+        cold_index,
+        tuning.floor_slab_anchors,
+        min_delta=tuning.floor_slab_min_delta,
+        max_delta=tuning.floor_slab_max_delta,
+    )
+    quality = "ok" if len(components) >= 3 else "degraded"
+    reason = "dynamic_3day_cold_index" if len(components) >= 3 else "dynamic_floor_slab_partial_inputs"
+    return FloorSlabDeltaBreakdown(
+        current=value,
+        source="dynamic_3day",
+        quality=quality,
+        reason=reason,
+        cold_index=cold_index,
+        components={key: round(value, 2) for key, value in components.items()},
+        anchors=anchors_payload,
+    )
+
+
 def setpoint_for(profile: str, effective_temperature: float | None, tuning: PolicyTuning | None = None) -> float:
     tuning = tuning or default_policy_tuning()
     if profile == "off":
@@ -409,6 +706,28 @@ def thermostat_target_for(policy_target: float, profile: str, floor_slab_delta: 
     if profile in ("off", "protection"):
         return policy_target
     return round(policy_target + floor_slab_delta, 2)
+
+
+def indoor_group_for_zone(zone: str) -> str:
+    return INDOOR_GROUP_BATHROOM if zone == "bathroom" else INDOOR_GROUP_LIVING_AREA
+
+
+def indoor_profile_key(profile: str) -> str:
+    return "grundwaerme" if profile == "grundwaerme" else profile
+
+
+def indoor_heat_rule_for(zone: str, profile: str, tuning: PolicyTuning | None = None) -> IndoorHeatRule | None:
+    tuning = tuning or default_policy_tuning()
+    group = indoor_group_for_zone(zone)
+    return tuning.indoor_heat_rules.get(group, {}).get(indoor_profile_key(profile))
+
+
+def no_heat_demand_reason(zone: str) -> str:
+    return "bath_temperature_above_target_no_heating" if zone == "bathroom" else "room_temperature_above_target_no_heating"
+
+
+def _is_heating_profile(profile: str | None) -> bool:
+    return profile in ("spar", "komfort", "boost", "grundwaerme")
 
 
 def evaluate_room_comfort(room_temperature: float | None, room_humidity: float | None, floor_slab_delta: float) -> RoomComfort:
@@ -488,6 +807,23 @@ def policy_visibility_snapshot(
             "feels_like_damping": tuning.feels_like_damping,
             "forecast_weight": tuning.forecast_weight,
         },
+        "floor_slab_dynamic": {
+            "mode": tuning.floor_slab_mode,
+            "min_delta": tuning.floor_slab_min_delta,
+            "max_delta": tuning.floor_slab_max_delta,
+            "anchors": [
+                {"cold_index": index, "delta": delta}
+                for index, delta in tuning.floor_slab_anchors
+            ],
+            "static_month_fallback_delta": floor_slab_delta,
+        },
+        "indoor_heat_rules": {
+            group: {
+                profile: rule.as_dict()
+                for profile, rule in profiles.items()
+            }
+            for group, profiles in tuning.indoor_heat_rules.items()
+        },
         "sources": {
             "setpoints": {
                 "off": tuning.source_for(OPT_SETPOINT_OFF),
@@ -505,6 +841,9 @@ def policy_visibility_snapshot(
                 "lux_reference": tuning.source_for(OPT_LUX_REFERENCE),
                 "feels_like_damping": tuning.source_for(OPT_FEELS_LIKE_DAMPING),
                 "forecast_weight": tuning.source_for(OPT_FORECAST_WEIGHT),
+                "floor_slab_mode": tuning.source_for(OPT_FLOOR_SLAB_MODE),
+                "floor_slab_min_delta": tuning.source_for(OPT_FLOOR_SLAB_MIN_DELTA),
+                "floor_slab_max_delta": tuning.source_for(OPT_FLOOR_SLAB_MAX_DELTA),
             },
             "active_threshold_band": {
                 field_name: tuning.source_for(threshold_option_key(band_key, field_name))
@@ -533,6 +872,7 @@ def decide_zone(
     now: datetime,
     *,
     tuning: PolicyTuning | None = None,
+    floor_slab_delta: FloorSlabDeltaBreakdown | None = None,
 ) -> ZonePlan:
     path: list[str] = []
     blockers: list[str] = []
@@ -634,9 +974,47 @@ def decide_zone(
             reason = "presence_preheat_caps_to_spar"
             path.append(reason)
 
+    allowed_profile = profile
+    allowed_reason = reason
+    heat_demand: bool | None = None
+    indoor_reason: str | None = None
+    indoor_rule = indoor_heat_rule_for(zone_input.zone, profile, tuning)
+    if profile != "off" and indoor_rule is not None:
+        room_temp = zone_input.room_temperature
+        if room_temp is None:
+            heat_demand = True
+            indoor_reason = "room_temperature_missing_allows_candidate"
+        elif room_temp >= indoor_rule.heat_off_at:
+            profile = "off"
+            reason = no_heat_demand_reason(zone_input.zone)
+            path.append(reason)
+            heat_demand = False
+            indoor_reason = "room_temperature_above_heat_off_at"
+            target_override = None
+        elif room_temp < indoor_rule.heat_on_below:
+            heat_demand = True
+            indoor_reason = "room_temperature_below_heat_on_below"
+        elif zone_input.last_mode == "off":
+            profile = "off"
+            reason = "no_heat_demand"
+            path.append(reason)
+            heat_demand = False
+            indoor_reason = "indoor_hysteresis_holds_off"
+            target_override = None
+        else:
+            heat_demand = True
+            indoor_reason = (
+                "indoor_hysteresis_holds_heat"
+                if _is_heating_profile(zone_input.last_mode)
+                else "indoor_hysteresis_initial_allows_heat"
+            )
+    elif profile == "off":
+        heat_demand = False
+        indoor_reason = "candidate_profile_off"
+
     policy_target = target_override if target_override is not None else setpoint_for(profile, teff, tuning)
-    floor_slab_delta = floor_slab_delta_for_month(month, tuning)
-    target = thermostat_target_for(policy_target, profile, floor_slab_delta)
+    slab = floor_slab_delta or floor_slab_delta_for_month_breakdown(month, tuning)
+    target = thermostat_target_for(policy_target, profile, slab.current)
     if not zone_input.thermostat_entity_id:
         blockers.append("thermostat_entity_missing")
 
@@ -658,10 +1036,21 @@ def decide_zone(
         source_entities=source_entities,
         input_quality=quality,  # type: ignore[arg-type]
         effective_outdoor_temperature=teff,
-        floor_slab_delta=floor_slab_delta,
-        room_comfort=evaluate_room_comfort(zone_input.room_temperature, zone_input.room_humidity, floor_slab_delta),
+        floor_slab_delta=slab.current,
+        floor_slab_delta_source=slab.source,
+        floor_slab_delta_quality=slab.quality,
+        floor_slab_delta_reason=slab.reason,
+        floor_slab_cold_index=slab.cold_index,
+        room_comfort=evaluate_room_comfort(zone_input.room_temperature, zone_input.room_humidity, slab.current),
         is_boost_active=profile == "boost",
         hysteresis_state=profile,
+        allowed_profile=allowed_profile,
+        allowed_reason=allowed_reason,
+        heat_demand=heat_demand,
+        indoor_heat_demand_reason=indoor_reason,
+        indoor_heat_on_below=indoor_rule.heat_on_below if indoor_rule else None,
+        indoor_heat_off_at=indoor_rule.heat_off_at if indoor_rule else None,
+        indoor_min_hold_minutes=indoor_rule.min_hold_minutes if indoor_rule else None,
         last_calculated=now.isoformat(),
         apply_block_reason=", ".join(blockers) if blockers else "none",
         policy_config_hash=tuning.signature,

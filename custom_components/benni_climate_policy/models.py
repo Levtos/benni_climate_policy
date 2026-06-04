@@ -118,6 +118,7 @@ class ZoneInput:
     thermostat_entity_id: str | None = None
     windows: tuple[WindowState, ...] = ()
     last_mode: str | None = None
+    last_mode_changed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -153,10 +154,21 @@ class ZonePlan:
     input_quality: Quality = "ok"
     effective_outdoor_temperature: float | None = None
     floor_slab_delta: float = 0.0
+    floor_slab_delta_source: str | None = None
+    floor_slab_delta_quality: str | None = None
+    floor_slab_delta_reason: str | None = None
+    floor_slab_cold_index: float | None = None
     room_comfort: RoomComfort | None = None
     is_boost_active: bool = False
     boost_until: str | None = None
     hysteresis_state: str | None = None
+    allowed_profile: str | None = None
+    allowed_reason: str | None = None
+    heat_demand: bool | None = None
+    indoor_heat_demand_reason: str | None = None
+    indoor_heat_on_below: float | None = None
+    indoor_heat_off_at: float | None = None
+    indoor_min_hold_minutes: int | None = None
     last_calculated: str | None = None
     last_applied: str | None = None
     apply_status: str = "pending"
@@ -171,9 +183,16 @@ class ZonePlan:
             "target_temperature": self.target_temperature,
             "raw_target_temperature": self.raw_target_temperature,
             "floor_slab_delta": self.floor_slab_delta,
+            "floor_slab_delta_source": self.floor_slab_delta_source,
+            "floor_slab_delta_quality": self.floor_slab_delta_quality,
+            "floor_slab_delta_reason": self.floor_slab_delta_reason,
+            "floor_slab_cold_index": self.floor_slab_cold_index,
             "blocked_by": sorted(self.blocked_by),
             "effective_outdoor_temperature": self.effective_outdoor_temperature,
             "policy_config_hash": self.policy_config_hash,
+            "allowed_profile": self.allowed_profile,
+            "heat_demand": self.heat_demand,
+            "indoor_heat_demand_reason": self.indoor_heat_demand_reason,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
@@ -191,6 +210,11 @@ class ZonePlan:
             "raw_target_temperature": self.raw_target_temperature,
             "policy_target_temperature": self.raw_target_temperature,
             "floor_slab_delta": self.floor_slab_delta,
+            "floor_slab_delta_current": self.floor_slab_delta,
+            "floor_slab_delta_source": self.floor_slab_delta_source,
+            "floor_slab_delta_quality": self.floor_slab_delta_quality,
+            "floor_slab_delta_reason": self.floor_slab_delta_reason,
+            "floor_slab_cold_index": self.floor_slab_cold_index,
             "final_target_temperature": self.target_temperature,
             "reason": self.reason,
             "decision_path": list(self.decision_path),
@@ -202,6 +226,13 @@ class ZonePlan:
             "is_boost_active": self.is_boost_active,
             "boost_until": self.boost_until,
             "hysteresis_state": self.hysteresis_state,
+            "allowed_profile": self.allowed_profile,
+            "allowed_reason": self.allowed_reason,
+            "heat_demand": self.heat_demand,
+            "indoor_heat_demand_reason": self.indoor_heat_demand_reason,
+            "indoor_heat_on_below": self.indoor_heat_on_below,
+            "indoor_heat_off_at": self.indoor_heat_off_at,
+            "indoor_min_hold_minutes": self.indoor_min_hold_minutes,
             "last_calculated": self.last_calculated,
             "last_applied": self.last_applied,
             "apply_status": self.apply_status,

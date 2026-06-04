@@ -24,7 +24,19 @@ def _compact_zone_plan(plan) -> dict[str, Any]:
         "policy_target_temperature": plan.raw_target_temperature,
         "raw_target_temperature": plan.raw_target_temperature,
         "floor_slab_delta": plan.floor_slab_delta,
+        "floor_slab_delta_current": plan.floor_slab_delta,
+        "floor_slab_delta_source": plan.floor_slab_delta_source,
+        "floor_slab_delta_quality": plan.floor_slab_delta_quality,
+        "floor_slab_delta_reason": plan.floor_slab_delta_reason,
+        "floor_slab_cold_index": plan.floor_slab_cold_index,
         "reason": plan.reason,
+        "allowed_profile": plan.allowed_profile,
+        "allowed_reason": plan.allowed_reason,
+        "heat_demand": plan.heat_demand,
+        "indoor_heat_demand_reason": plan.indoor_heat_demand_reason,
+        "indoor_heat_on_below": plan.indoor_heat_on_below,
+        "indoor_heat_off_at": plan.indoor_heat_off_at,
+        "indoor_min_hold_minutes": plan.indoor_min_hold_minutes,
         "apply_status": plan.apply_status,
         "apply_block_reason": plan.apply_block_reason,
         "apply_blocked": plan.apply_blocked,
@@ -109,6 +121,8 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
         compact_inputs = {
             "real_temperature": inputs.get("real_temperature"),
             "feels_like_temperature": inputs.get("feels_like_temperature"),
+            "outdoor_humidity": inputs.get("outdoor_humidity"),
+            "outdoor_wind_speed": inputs.get("outdoor_wind_speed"),
             "forecast_temperature": inputs.get("forecast_temperature"),
             "weather_condition": inputs.get("weather_condition"),
             "source_entities": inputs.get("source_entities"),
@@ -118,6 +132,7 @@ class EffectiveOutdoorTemperatureSensor(ClimatePolicyEntity, SensorEntity):
             "feels_like_source": feels_like_resolution.get("source"),
             "feels_like_quality": feels_like_resolution.get("quality"),
             "feels_like_reason": feels_like_resolution.get("reason"),
+            "feels_like_formula": feels_like_resolution.get("formula"),
         }
         if not self.coord.decision:
             return compact_inputs
@@ -180,6 +195,11 @@ class OutdoorFeelsLikeTemperatureSensor(ClimatePolicyEntity, SensorEntity):
             "quality": diag.quality,
             "fallback_used": diag.fallback_used,
             "reason": diag.reason,
+            "source_entities": diag.source_entities,
+            "outdoor_humidity": diag.outdoor_humidity,
+            "outdoor_wind_speed": diag.outdoor_wind_speed,
+            "outdoor_wind_speed_mps": diag.outdoor_wind_speed_mps,
+            "formula": diag.formula,
         }
 
 

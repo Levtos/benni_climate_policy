@@ -64,7 +64,7 @@ def test_coordinator_does_not_watch_self_generated_temperature_inputs():
     assert "SELF_GENERATED_INPUT_ENTITY_IDS" in COORDINATOR_SOURCE
     assert "def _is_watchable_entity_id" in COORDINATOR_SOURCE
     assert "value not in SELF_GENERATED_INPUT_ENTITY_IDS" in COORDINATOR_SOURCE
-    assert "if _is_watchable_entity_id(v)" in COORDINATOR_SOURCE
+    assert "key != CONF_OUTDOOR_FEELS_LIKE and _is_watchable_entity_id(value)" in COORDINATOR_SOURCE
 
 
 def test_debug_payload_exposes_compact_performance_diagnostics():

@@ -57,8 +57,10 @@ from .const import (
     CONF_LIVING_WINDOW_RIGHT_OPEN,
     CONF_LIVING_WINDOW_RIGHT_TILT,
     CONF_OUTDOOR_FEELS_LIKE,
+    CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_LUX,
     CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_WIND_SPEED,
     CONF_STARTUP_BLOCK_SECONDS,
     CONF_SUN,
     CONF_SYSTEM_READY,
@@ -78,9 +80,14 @@ from .const import (
 )
 from .policy import (
     DEFAULT_THRESHOLD_BANDS,
+    DEFAULT_INDOOR_HEAT_RULES,
+    FLOOR_SLAB_ANCHOR_NAMES,
     OPT_BOOST_ACTIVATION_DELTA,
     OPT_BOOST_DELTA,
     OPT_FEELS_LIKE_DAMPING,
+    OPT_FLOOR_SLAB_MAX_DELTA,
+    OPT_FLOOR_SLAB_MIN_DELTA,
+    OPT_FLOOR_SLAB_MODE,
     OPT_FLOOR_SLAB_TAU,
     OPT_FORECAST_WEIGHT,
     OPT_LUX_BONUS_MAX,
@@ -90,6 +97,8 @@ from .policy import (
     OPT_SETPOINT_OFF,
     OPT_SETPOINT_SPAR,
     default_policy_tuning,
+    floor_slab_anchor_option_key,
+    indoor_heat_option_key,
     threshold_option_key,
 )
 
@@ -106,9 +115,13 @@ POS_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=1
 WEIGHT_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.05, mode="box"))
 PERCENT_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=0.5, mode="box"))
 SMALL_DELTA_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=-10, max=30, step=0.1, mode="box"))
+DELTA_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=5, step=0.1, mode="box"))
+INDOOR_TEMP_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=30, step=0.1, mode="box"))
+MINUTES_SMALL = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=240, step=1, mode="box"))
 BATH_BONUS_FLOAT = selector.NumberSelector(selector.NumberSelectorConfig(min=-5, max=5, step=0.1, mode="box"))
 BATH_MINUTES = selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=240, step=1, mode="box"))
 BATH_HOURS = selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=48, step=1, mode="box"))
+FLOOR_SLAB_MODE_SELECTOR = selector.SelectSelector(selector.SelectSelectorConfig(options=["dynamic_3day", "static_fallback"]))
 
 STEP_CONTEXT = (
     CONF_CONTEXT_ACTIVITY,
@@ -125,8 +138,9 @@ STEP_CONTEXT = (
 )
 STEP_ENVIRONMENT = (
     CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_WIND_SPEED,
     CONF_WEATHER_ENTITY,
-    CONF_OUTDOOR_FEELS_LIKE,
     CONF_FORECAST_TEMPERATURE,
     CONF_WEATHER_CONDITION,
     CONF_OUTDOOR_LUX,
@@ -168,6 +182,26 @@ STEP_TUNING_EFFECTIVE = (
     OPT_LUX_REFERENCE,
     OPT_FEELS_LIKE_DAMPING,
     OPT_FORECAST_WEIGHT,
+)
+STEP_TUNING_FLOOR_SLAB = (
+    OPT_FLOOR_SLAB_MODE,
+    OPT_FLOOR_SLAB_MIN_DELTA,
+    OPT_FLOOR_SLAB_MAX_DELTA,
+    *(
+        floor_slab_anchor_option_key(anchor, field)
+        for anchor in FLOOR_SLAB_ANCHOR_NAMES
+        for field in ("index", "delta")
+    ),
+)
+STEP_TUNING_INDOOR_LIVING = tuple(
+    indoor_heat_option_key("living_area", profile, field)
+    for profile in ("spar", "komfort", "boost")
+    for field in ("heat_on_below", "heat_off_at", "min_hold_minutes")
+)
+STEP_TUNING_INDOOR_BATHROOM = tuple(
+    indoor_heat_option_key("bathroom", profile, field)
+    for profile in ("grundwaerme", "komfort")
+    for field in ("heat_on_below", "heat_off_at", "min_hold_minutes")
 )
 STEP_TUNING_BATHROOM = BATH_OPTION_KEYS
 STEP_TUNING_THRESHOLDS = tuple(
@@ -220,7 +254,16 @@ SELECTORS.update({
     OPT_LUX_REFERENCE: selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=100000, step=100, mode="box")),
     OPT_FEELS_LIKE_DAMPING: WEIGHT_FLOAT,
     OPT_FORECAST_WEIGHT: WEIGHT_FLOAT,
+    OPT_FLOOR_SLAB_MODE: FLOOR_SLAB_MODE_SELECTOR,
+    OPT_FLOOR_SLAB_MIN_DELTA: DELTA_FLOAT,
+    OPT_FLOOR_SLAB_MAX_DELTA: DELTA_FLOAT,
 })
+for key in (*STEP_TUNING_INDOOR_LIVING, *STEP_TUNING_INDOOR_BATHROOM):
+    SELECTORS[key] = MINUTES_SMALL if key.endswith("_min_hold_minutes") else INDOOR_TEMP_FLOAT
+for key in STEP_TUNING_FLOOR_SLAB:
+    if key == OPT_FLOOR_SLAB_MODE:
+        continue
+    SELECTORS[key] = DELTA_FLOAT if key.endswith("_delta") else SMALL_DELTA_FLOAT
 SELECTORS.update({
     OPT_BATH_SETPOINT_PROTECTION: TEMP_FLOAT,
     OPT_BATH_SETPOINT_GROUND: TEMP_FLOAT,
@@ -278,7 +321,21 @@ def _defaults(hass, data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, An
         OPT_LUX_REFERENCE: tuning.lux_reference,
         OPT_FEELS_LIKE_DAMPING: tuning.feels_like_damping,
         OPT_FORECAST_WEIGHT: tuning.forecast_weight,
+        OPT_FLOOR_SLAB_MODE: tuning.floor_slab_mode,
+        OPT_FLOOR_SLAB_MIN_DELTA: tuning.floor_slab_min_delta,
+        OPT_FLOOR_SLAB_MAX_DELTA: tuning.floor_slab_max_delta,
     }
+    for group, profiles in DEFAULT_INDOOR_HEAT_RULES.items():
+        for profile, defaults in profiles.items():
+            heat_on, heat_off, min_hold = defaults
+            tuning_defaults.update({
+                indoor_heat_option_key(group, profile, "heat_on_below"): heat_on,
+                indoor_heat_option_key(group, profile, "heat_off_at"): heat_off,
+                indoor_heat_option_key(group, profile, "min_hold_minutes"): min_hold,
+            })
+    for anchor, (index, delta) in zip(FLOOR_SLAB_ANCHOR_NAMES, tuning.floor_slab_anchors):
+        tuning_defaults[floor_slab_anchor_option_key(anchor, "index")] = index
+        tuning_defaults[floor_slab_anchor_option_key(anchor, "delta")] = delta
     bath_tuning = bath_tuning_from_options({})
     tuning_defaults.update({
         OPT_BATH_SETPOINT_PROTECTION: bath_tuning.setpoint_protection,
@@ -401,6 +458,9 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
                 "environment",
                 "tuning_core",
                 "tuning_effective",
+                "tuning_floor_slab",
+                "tuning_indoor_living",
+                "tuning_indoor_bathroom",
                 "tuning_bathroom",
                 "tuning_thresholds",
                 "apply",
@@ -435,6 +495,15 @@ class ClimatePolicyOptionsFlow(OptionsFlow):
 
     async def async_step_tuning_effective(self, user_input=None):
         return self._edit("tuning_effective", STEP_TUNING_EFFECTIVE, user_input)
+
+    async def async_step_tuning_floor_slab(self, user_input=None):
+        return self._edit("tuning_floor_slab", STEP_TUNING_FLOOR_SLAB, user_input)
+
+    async def async_step_tuning_indoor_living(self, user_input=None):
+        return self._edit("tuning_indoor_living", STEP_TUNING_INDOOR_LIVING, user_input)
+
+    async def async_step_tuning_indoor_bathroom(self, user_input=None):
+        return self._edit("tuning_indoor_bathroom", STEP_TUNING_INDOOR_BATHROOM, user_input)
 
     async def async_step_tuning_bathroom(self, user_input=None):
         return self._edit("tuning_bathroom", STEP_TUNING_BATHROOM, user_input)
