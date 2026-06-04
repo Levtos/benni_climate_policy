@@ -153,6 +153,24 @@ def test_terrace_door_sustained_open_delay_until_early_night():
     assert early_night.profile == "off"
 
 
+def test_terrace_grace_never_overrides_tilted_living_window():
+    now = datetime(2026, 7, 1, 18)
+    tilted_living_window = WindowState("off", "on")
+    terrace_in_grace = WindowState("on", "off", active_since=now - timedelta(minutes=1), sustained_open_delay=timedelta(minutes=5))
+
+    for zone_name in ("living_room", "kitchen"):
+        plan = decide_zone(
+            ZoneInput(zone_name, thermostat_entity_id=f"climate.{zone_name}", windows=(tilted_living_window, terrace_in_grace)),
+            ctx(),
+            eff(0),
+            now,
+        )
+
+        assert plan.profile == "off"
+        assert plan.reason == "window_blocks_heating"
+        assert plan.target_temperature == 10.0
+
+
 def test_free_time_early_night_holds_comfort_outside_summer():
     plan = decide_zone(zone(), ctx(activity="free_time", day_state="early_night"), eff(14), datetime(2026, 10, 1, 21))
     assert plan.profile == "komfort"

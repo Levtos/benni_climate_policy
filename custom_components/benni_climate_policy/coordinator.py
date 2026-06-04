@@ -475,7 +475,7 @@ class ClimatePolicyCoordinator:
         self.evaluate_duration_samples_ms = self.evaluate_duration_samples_ms[-100:]
         self._notify()
         if auto_apply and self.apply_active:
-            await self.async_apply(manual=False, dry_run=False)
+            await self.async_apply(manual=False, dry_run=False, refresh=False)
         return self.decision
 
     def _living_area_windows(self) -> tuple[WindowState, ...]:
@@ -768,10 +768,11 @@ class ClimatePolicyCoordinator:
         zone: str | None = None,
         manual: bool,
         dry_run: bool,
+        refresh: bool = True,
     ) -> ApplyResult:
         apply_started = time.perf_counter()
-        if self.decision is None:
-            await self.async_evaluate(auto_apply=False, reason="apply_without_decision")
+        if refresh or self.decision is None:
+            await self.async_evaluate(auto_apply=False, reason="apply_refresh_before_execute")
         decision = self.decision
         if decision is None:
             self.last_apply_result = ApplyResult("error", "no_decision", [])
@@ -841,6 +842,11 @@ class ClimatePolicyCoordinator:
             else:
                 status = "skipped"
             result = ApplyResult(status, status, actions, dry_run=all(a.status == "dry_run" for a in actions))
+        result = replace(
+            result,
+            input_hash=decision.input_hash,
+            plan_hashes={zone_id: plan.plan_hash for zone_id, plan in decision.zone_plans.items()},
+        )
         if not dry_run:
             for action in result.actions:
                 if action.zone == "bathroom_fan":

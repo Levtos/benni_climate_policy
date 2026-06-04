@@ -69,13 +69,35 @@ def test_unchanged_plan_is_not_reapplied():
 def test_unavailable_thermostat_returns_error():
     result = evaluate_apply_gate(plan(), "climate.living", gate(target_state="unavailable"))
     assert result.status == "error"
-    assert result.reason == "target_entity_unavailable"
+    assert result.reason == "failed_entity_unavailable"
 
 
 def test_cooldown_blocks_reapply():
     result = evaluate_apply_gate(plan(), "climate.living", gate(last_apply_at=datetime(2026, 1, 1, 11, 55)))
     assert result.status == "blocked"
-    assert result.reason == "cooldown_active"
+    assert result.reason == "blocked_by_cooldown"
+
+
+def test_safety_downshift_bypasses_cooldown_and_plan_unchanged():
+    p = ZonePlan(
+        zone="living_room",
+        profile="off",
+        target_temperature=10.0,
+        raw_target_temperature=10.0,
+        reason="window_blocks_heating",
+        decision_path=["window_blocks_heating"],
+    )
+
+    result = evaluate_apply_gate(
+        p,
+        "climate.living",
+        gate(last_applied_hash=p.plan_hash, last_apply_at=datetime(2026, 1, 1, 11, 55)),
+    )
+
+    assert result.status == "applied"
+    assert result.reason == "forced_safety_downshift"
+    assert result.details["forced_safety_downshift"] is True
+    assert result.details["safety_downshift_reason"] == "window_blocks_heating"
 
 
 class _FakeState:
@@ -88,6 +110,8 @@ class _FakeStates:
     def __init__(self):
         self._states = {
             "climate.living": _FakeState("off", {"hvac_modes": ["off", "heat"], "temperature": 18.0}),
+            "climate.hot_living": _FakeState("heat", {"hvac_modes": ["off", "heat"], "temperature": 21.0}),
+            "climate.kitchen": _FakeState("heat", {"hvac_modes": ["off", "heat"], "temperature": 21.0}),
             "switch.bath_fan": _FakeState("off"),
             "switch.unavailable_fan": _FakeState("unavailable"),
         }
@@ -152,6 +176,82 @@ def test_protection_profile_uses_heat_setpoint_not_off_mode():
     assert result.details["planned_temperature"] == 16.0
 
 
+def test_safety_downshift_dry_run_and_real_apply_use_same_calls_despite_cooldown():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    p = ZonePlan(
+        zone="living_room",
+        profile="off",
+        target_temperature=10.0,
+        raw_target_temperature=10.0,
+        reason="window_blocks_heating",
+        decision_path=["window_blocks_heating"],
+    )
+    cooled_gate = gate(
+        dry_run=True,
+        manual=True,
+        last_applied_hash=p.plan_hash,
+        last_apply_at=datetime(2026, 1, 1, 11, 55),
+        target_state="heat",
+    )
+
+    dry = asyncio.run(engine.async_apply_plan(
+        p,
+        target_entity_id="climate.hot_living",
+        gate=cooled_gate,
+    ))
+    real = asyncio.run(engine.async_apply_plan(
+        p,
+        target_entity_id="climate.hot_living",
+        gate=gate(
+            manual=True,
+            last_applied_hash=p.plan_hash,
+            last_apply_at=datetime(2026, 1, 1, 11, 55),
+            target_state="heat",
+        ),
+    ))
+
+    assert dry.reason == "forced_safety_downshift"
+    assert real.status == "applied"
+    assert real.reason == "forced_safety_downshift"
+    assert dry.details["forced_safety_downshift"] is True
+    assert real.details["forced_safety_downshift"] is True
+    assert dry.service_calls == real.service_calls
+    assert [call["service"] for call in real.service_calls] == ["set_temperature", "set_hvac_mode"]
+    assert len(hass.services.calls) == 2
+
+
+def test_safety_downshift_apply_many_writes_living_and_kitchen():
+    hass = _FakeHass()
+    engine = ApplyEngine(hass)
+    living = ZonePlan(
+        zone="living_room",
+        profile="off",
+        target_temperature=10.0,
+        raw_target_temperature=10.0,
+        reason="window_blocks_heating",
+        decision_path=["window_blocks_heating"],
+    )
+    kitchen = ZonePlan(
+        zone="kitchen",
+        profile="off",
+        target_temperature=10.0,
+        raw_target_temperature=10.0,
+        reason="window_blocks_heating",
+        decision_path=["window_blocks_heating"],
+    )
+
+    result = asyncio.run(engine.async_apply_many([
+        (living, "climate.hot_living", gate(last_apply_at=datetime(2026, 1, 1, 11, 55), target_state="heat")),
+        (kitchen, "climate.kitchen", gate(last_apply_at=datetime(2026, 1, 1, 11, 55), target_state="heat")),
+    ]))
+
+    assert result.status == "applied"
+    assert [action.status for action in result.actions] == ["applied", "applied"]
+    assert all(action.details["forced_safety_downshift"] for action in result.actions)
+    assert len(hass.services.calls) == 4
+
+
 def test_apply_cooldown_option_is_used():
     assert apply_cooldown_seconds_from_config({"apply_cooldown_seconds": 120}) == 120
     assert apply_cooldown_seconds_from_config({"apply_cooldown_seconds": 0}) == 600
@@ -203,6 +303,6 @@ def test_switch_unavailable_returns_readable_error():
     ))
 
     assert result.status == "error"
-    assert result.reason == "target_entity_unavailable"
+    assert result.reason == "failed_entity_unavailable"
     assert hass.services.calls == []
 

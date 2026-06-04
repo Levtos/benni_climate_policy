@@ -54,7 +54,7 @@ def humidity_input(*, bath_temp=24.0, bath_humidity=60.0, living_temp=21.0, livi
 
 
 def test_bathroom_defaults_ground_heat():
-    plan = decide_bathroom_climate(climate_input(), ctx(), eff(10), datetime(2026, 1, 1, 12), bath_tuning_from_options({}))
+    plan = decide_bathroom_climate(climate_input(temp=18.5), ctx(), eff(10), datetime(2026, 1, 1, 12), bath_tuning_from_options({}))
     assert plan.profile == "grundwaerme"
     assert plan.target_temperature == 19.0
 
@@ -72,7 +72,7 @@ def test_bathroom_comfort_windows_and_teff_limit():
     assert plan.profile == "komfort"
     assert plan.target_temperature == 22.5
 
-    suppressed = decide_bathroom_climate(climate_input(), ctx(day_state="early_morning", workday="werktag"), eff(19), datetime(2026, 1, 1, 7), tuning)
+    suppressed = decide_bathroom_climate(climate_input(temp=18.5), ctx(day_state="early_morning", workday="werktag"), eff(19), datetime(2026, 1, 1, 7), tuning)
     assert suppressed.profile == "grundwaerme"
 
     weekend = decide_bathroom_climate(climate_input(), ctx(day_state="late_morning", workday="wochenende"), eff(10), datetime(2026, 1, 3, 10), tuning)
@@ -80,6 +80,31 @@ def test_bathroom_comfort_windows_and_teff_limit():
 
     evening = decide_bathroom_climate(climate_input(), ctx(day_state="late_evening"), eff(10), datetime(2026, 1, 1, 22), tuning)
     assert evening.profile == "komfort"
+
+
+def test_bathroom_over_target_forces_heating_off_even_when_fan_can_run():
+    now = datetime(2026, 1, 1, 7)
+    tuning = bath_tuning_from_options({})
+    heating = decide_bathroom_climate(
+        climate_input(temp=24.6),
+        ctx(day_state="early_morning", workday="werktag"),
+        eff(10),
+        now,
+        tuning,
+    )
+    fan = decide_bathroom_fan(
+        BathroomHumidityInput(24.6, 80, 21, 45),
+        heating,
+        now=now,
+        day_state="early_morning",
+        last_fan_active_at=None,
+        tuning=tuning,
+    )
+
+    assert heating.profile == "off"
+    assert heating.target_temperature == 10.0
+    assert heating.reason == "bath_over_target_forces_off"
+    assert fan.target_switch_state == "on"
 
 
 def test_bathroom_outdoor_bonus_steps():
@@ -91,9 +116,9 @@ def test_bathroom_outdoor_bonus_steps():
 
 
 def test_bathroom_tuning_changes_plan_hash():
-    base = decide_bathroom_climate(climate_input(), ctx(), eff(10), datetime(2026, 1, 1, 12), bath_tuning_from_options({}))
+    base = decide_bathroom_climate(climate_input(temp=18.0), ctx(), eff(10), datetime(2026, 1, 1, 12), bath_tuning_from_options({}))
     tuned = decide_bathroom_climate(
-        climate_input(),
+        climate_input(temp=18.0),
         ctx(),
         eff(10),
         datetime(2026, 1, 1, 12),
