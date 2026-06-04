@@ -77,11 +77,11 @@ const THRESHOLD_BANDS = [
   ["winter", "Winter", "Dez - Feb"],
   ["late_winter", "Spätwinter", "März"],
   ["spring", "Frühling", "April"],
-  ["late_spring", "Spätfrühling", "Mai"],
-  ["summer", "Sommer", "Jun - Aug"],
-  ["early_autumn", "Frühherbst", "September"],
+  ["late_spring", "Frühsommer", "Mai"],
+  ["summer", "Sommerpause", "Jun - Aug"],
+  ["early_autumn", "Spätsommer", "September"],
   ["autumn", "Herbst", "Oktober"],
-  ["late_autumn", "Spätherbst", "November"],
+  ["late_autumn", "Vorwinter", "November"],
 ];
 
 const TUNING_GROUPS = [
@@ -91,7 +91,7 @@ const TUNING_GROUPS = [
     ["setpoint_komfort", "Komfort"],
     ["setpoint_boost", "Boost"],
   ]],
-  ["effective", "Effektive Außentemperatur", "mdi:thermometer-lines", [
+  ["effective", "Heizrelevante Außentemperatur", "mdi:thermometer-lines", [
     ["floor_slab_tau", "Bodenplatten-Tau"],
     ["lux_bonus_max", "Maximaler Lux-Bonus"],
     ["lux_reference", "Lux-Referenz"],
@@ -110,7 +110,7 @@ const TUNING_GROUPS = [
     ["bath_setpoint_protection", "Schutz-Setpoint"],
     ["bath_setpoint_ground", "Bad Eco-Setpoint"],
     ["bath_setpoint_comfort", "Komfort-Setpoint"],
-    ["bath_comfort_suppression_teff", "Komfort bis Teff"],
+    ["bath_comfort_suppression_teff", "Komfort bis Heizwert"],
     ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
     ["bath_humidity_acute_rise_threshold", "Akut-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
@@ -582,9 +582,9 @@ function renderApplySummary(lastApply) {
     const gateReason = action.details?.gate_reason || action.details?.gate_status || "none";
     return `<tr>
       <td class="mono">${esc(action.zone)}</td>
-      <td>${statusChip(action.status)}</td>
-      <td class="mono">${esc(action.reason || "missing")}</td>
-      <td class="mono">${esc(gateReason)}</td>
+      <td>${statusChip(action.status, reasonLabel(action.status))}</td>
+      <td class="mono">${esc(reasonLabel(action.reason || "missing"))}</td>
+      <td class="mono">${esc(reasonLabel(gateReason))}</td>
       <td class="mono">${esc(action.target_entity_id || "missing")}</td>
       <td class="mono">${esc(asText(plannedFromCalls(action, "planned_hvac_mode"), "none"))}</td>
       <td class="mono">${esc(asText(plannedFromCalls(action, "planned_temperature"), "none"))}</td>
@@ -649,70 +649,182 @@ function zoneRoomTemperature(hass, app, zone) {
   return tempText(state.state, state.state || "unavailable");
 }
 
+const UX_LABELS = {
+  modes: {
+    off: "Aus",
+    aus: "Aus",
+    spar: "Eco",
+    eco: "Eco",
+    comfort: "Komfort",
+    komfort: "Komfort",
+    boost: "Boost",
+    ground: "Eco",
+    ground_heat: "Eco",
+    grundwaerme: "Eco",
+    grundwärme: "Eco",
+    protection: "Schutz",
+  },
+  weather: {
+    clear: "klar",
+    clear_night: "klare Nacht",
+    sunny: "sonnig",
+    partlycloudy: "leicht bewölkt",
+    cloudy: "bewölkt",
+    overcast: "bedeckt",
+    rainy: "regnerisch",
+    pouring: "starker Regen",
+    lightning: "Gewitter",
+    lightning_rainy: "Gewitterregen",
+    lightning_rainy_alt: "Gewitterregen",
+    snowy: "Schnee",
+    snowy_rainy: "Schneeregen",
+    fog: "neblig",
+    windy: "windig",
+    windy_variant: "windig und bewölkt",
+    exceptional: "außergewöhnlich",
+  },
+  context: {
+    awake: "Wach",
+    active: "Aktiv",
+    asleep: "Schlafend",
+    sleep: "Schlafend",
+    sleeping: "Schlafend",
+    tired: "Müde",
+    free_time: "Freizeit",
+    work: "Arbeit",
+    workday: "Werktag",
+    weekday: "Werktag",
+    werktag: "Werktag",
+    weekend: "Wochenende",
+    wochenende: "Wochenende",
+    holiday: "Feiertag",
+    forenoon: "Vormittag",
+    fore_noon: "Vormittag",
+    afternoon: "Nachmittag",
+    evening: "Abend",
+    night: "Nacht",
+    early_night: "Frühe Nacht",
+    late_night: "Späte Nacht",
+    home: "Zuhause",
+    zuhause: "Zuhause",
+    present: "Zuhause",
+    daheim: "Zuhause",
+    bei_eltern: "Bei Eltern",
+    nicht_leer: "Haushalt zuhause",
+    not_empty: "Haushalt zuhause",
+    occupied: "Haushalt zuhause",
+    leer: "Niemand zuhause",
+    empty: "Niemand zuhause",
+    away: "Niemand zuhause",
+    not_home: "Niemand zuhause",
+    none: "Keine",
+    off: "Aus",
+  },
+  seasons: {
+    winter: "Winter",
+    late_winter: "Spätwinter",
+    spring: "Frühling",
+    late_spring: "Frühsommer",
+    summer: "Sommerpause",
+    early_autumn: "Spätsommer",
+    autumn: "Herbst",
+    late_autumn: "Vorwinter",
+  },
+  reasons: {
+    blocked: "blockiert",
+    cooldown_active: "Cooldown aktiv",
+    already_at_target: "bereits am Ziel",
+    none: "Keine",
+    no_apply_needed: "kein Apply nötig",
+    window_blocks_heating: "Fenster blockiert Heizen",
+    bath_ground_heat_default: "Mindestwärme gegen Auskühlung und Feuchte",
+  },
+  effectiveOutdoor: {
+    large: "Heizrelevante Außentemperatur",
+    chip: "Heizwert",
+    technical: "Teff / effective_outdoor_temperature",
+    explanation: "Berechnet aus realer Temperatur, Wetter, Prognose, Sonneneinstrahlung und Korrekturen.",
+  },
+};
+
+function normalizeUxKey(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replaceAll(" ", "_");
+}
+
+function readableFallback(value, missing = "Unbekannt") {
+  const text = asText(value, "");
+  if (!text || ["missing", "unknown", "unavailable"].includes(text.toLowerCase())) return missing;
+  const words = text.replaceAll("_", " ").replaceAll("-", " ").trim();
+  if (!words) return missing;
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function displayValue(value, missing = "unbekannt") {
   const text = asText(value, missing);
   if (text === "missing" || text === "unknown" || text === "unavailable") return missing;
   return text;
 }
 
-function localDateTime(value, missing = "unbekannt") {
+function parseDateValue(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "number" && Number.isFinite(value)) return new Date(value);
   const text = asText(value, "");
-  if (!text || text === "missing" || text === "unknown" || text === "unavailable") return missing;
+  if (!text || ["missing", "unknown", "unavailable", "never", "none", "null"].includes(text.toLowerCase())) return null;
   const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return displayValue(value, missing);
-  return date.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function localTime(value, missing = "unbekannt") {
-  const text = asText(value, "");
-  if (!text || text === "missing" || text === "unknown" || text === "unavailable") return missing;
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  return displayValue(value, missing);
+function formatDateLocal(value, missing = "Noch keine Aktualisierung") {
+  const date = parseDateValue(value);
+  if (!date) return missing;
+  return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function formatTimeLocal(value, missing = "Noch keine Aktualisierung") {
+  const date = parseDateValue(value);
+  if (!date) return missing;
+  return `${date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`;
+}
+
+function formatDateTimeLocal(value, missing = "Noch keine Aktualisierung") {
+  const date = parseDateValue(value);
+  if (!date) return missing;
+  return `${formatDateLocal(date)} · ${formatTimeLocal(date)}`;
+}
+
+function formatTimeDateLocal(value, missing = "Noch keine Aktualisierung") {
+  const date = parseDateValue(value);
+  if (!date) return missing;
+  return `${formatTimeLocal(date)} · ${formatDateLocal(date)}`;
+}
+
+function formatRelativeOrDateTime(value, neverLabel = "Noch nie angewendet") {
+  if (["never", "none", "null", "", "missing", "unknown", "unavailable"].includes(String(value ?? "").toLowerCase())) {
+    return neverLabel;
+  }
+  return formatTimeDateLocal(value, neverLabel);
+}
+
+function localDateTime(value, missing = "Noch keine Aktualisierung") {
+  return formatTimeDateLocal(value, missing);
+}
+
+function localTime(value, missing = "Noch keine Aktualisierung") {
+  return formatTimeLocal(value, missing);
 }
 
 function translatePresence(value) {
-  const raw = String(value ?? "").toLowerCase();
-  if (["zuhause", "home", "present", "daheim"].includes(raw)) return "Zuhause";
-  if (["nicht_leer", "not_empty", "occupied"].includes(raw)) return "Haushalt nicht leer";
-  if (["leer", "empty", "away", "not_home", "far"].includes(raw)) return "Niemand zuhause";
-  return displayValue(value, "nicht geladen");
+  return translateContextValue("presence", value);
 }
 
 function translateContextValue(key, value) {
-  const raw = String(value ?? "").toLowerCase();
-  const maps = {
-    day_context: {
-      workday: "Werktag",
-      weekday: "Werktag",
-      weekend: "Wochenende",
-      holiday: "Feiertag",
-      free_time: "Freizeit",
-      fore_noon: "Vormittag",
-      afternoon: "Nachmittag",
-      evening: "Abend",
-      night: "Nacht",
-    },
-    day_state: {
-      workday: "Werktag",
-      weekday: "Werktag",
-      weekend: "Wochenende",
-      holiday: "Feiertag",
-      free_time: "Freizeit",
-      fore_noon: "Vormittag",
-      afternoon: "Nachmittag",
-      evening: "Abend",
-      night: "Nacht",
-    },
-    bio_state: {
-      awake: "Wach",
-      sleep: "Schlaf",
-      sleeping: "Schlaf",
-      tired: "Müde",
-      active: "Aktiv",
-    },
-  };
-  return maps[key]?.[raw] || displayValue(value, "nicht geladen");
+  const raw = normalizeUxKey(value);
+  if (!raw) return "nicht geladen";
+  return UX_LABELS.context[raw] || readableFallback(value, "nicht geladen");
 }
 
 function presenceSummary(hass, app) {
@@ -735,26 +847,21 @@ function numberLike(value) {
 function tempText(value, missing = "unbekannt") {
   const number = numberLike(value);
   if (number === null) return displayValue(value, missing);
-  return `${number.toFixed(1)} °C`;
+  return `${number.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
 }
 
 function modeLabel(value) {
-  const raw = String(value ?? "missing").toLowerCase();
-  const map = {
-    off: "Aus",
-    aus: "Aus",
-    spar: "Eco",
-    eco: "Eco",
-    comfort: "Komfort",
-    komfort: "Komfort",
-    boost: "Boost",
-    ground: "Eco",
-    ground_heat: "Eco",
-    grundwaerme: "Eco",
-    grundwärme: "Eco",
-    protection: "Schutz",
-  };
-  return map[raw] || displayValue(value);
+  const raw = normalizeUxKey(value || "missing");
+  return UX_LABELS.modes[raw] || readableFallback(value);
+}
+
+function effectiveOutdoorLabel(size = "large") {
+  return UX_LABELS.effectiveOutdoor[size] || UX_LABELS.effectiveOutdoor.large;
+}
+
+function reasonLabel(value) {
+  const raw = normalizeUxKey(value);
+  return UX_LABELS.reasons[raw] || readableFallback(value);
 }
 
 function zoneIcon(zone) {
@@ -786,7 +893,7 @@ function compactReason(reason, zone = "") {
   if (raw.includes("startup")) return "Start-Ruhezeit schützt vor Kurzschluss.";
   if (raw.includes("humidity") || raw.includes("feuchte") || raw.includes("dew")) return "Feuchtewerte bestimmen die Bad-Logik.";
   if (raw.includes("fan") || raw.includes("lüfter") || raw.includes("luefter")) return "Der Badlüfter wird koordiniert.";
-  return `${zone ? `${ZONES[zone]?.label || zone}: ` : ""}${displayValue(reason)}`;
+  return `${zone ? `${ZONES[zone]?.label || zone}: ` : ""}${reasonLabel(reason)}`;
 }
 
 function livingAreaWindowStatus(hass) {
@@ -810,35 +917,13 @@ function primaryReason(plan, zone = "") {
 }
 
 function weatherLabel(hass, app) {
-  const br = effectiveBreakdown(hass, app);
-  const inputs = effectiveInputs(hass, app);
-  const real = numberLike(inputs.real_temperature ?? br.real_temperature ?? stateText(hass, ENTITIES.effectiveTemp));
-  if (real === null) return "unbekannt";
-  if (real < 5) return "kalt";
-  if (real < 14) return "kühl";
-  if (real < 22) return "mild";
-  return "warm";
+  return outdoorFeeling(hass, app).outdoor_feeling_label;
 }
 
 function weatherConditionLabel(value) {
-  const raw = String(value ?? "").toLowerCase();
-  const map = {
-    clear: "Klar",
-    sunny: "Sonnig",
-    partlycloudy: "Teilweise bewölkt",
-    cloudy: "Bewölkt",
-    overcast: "Bedeckt",
-    rainy: "Regen",
-    pouring: "Starker Regen",
-    lightning: "Gewitter",
-    lightning_rainy: "Gewitterregen",
-    snowy: "Schnee",
-    snowy_rainy: "Schneeregen",
-    fog: "Nebel",
-    windy: "Windig",
-    exceptional: "Außergewöhnlich",
-  };
-  return map[raw] || displayValue(value, "nicht geladen");
+  const raw = normalizeUxKey(value);
+  if (!raw) return "Unbekannt";
+  return UX_LABELS.weather[raw] || readableFallback(value, "Unbekannt");
 }
 
 function qualityLabel(value) {
@@ -855,7 +940,7 @@ function qualityLabel(value) {
 
 function seasonBandLabel(value) {
   const raw = String(value ?? "").toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
-  return THRESHOLD_BANDS.find(([band]) => band === raw)?.[1] || displayValue(value);
+  return UX_LABELS.seasons[raw] || THRESHOLD_BANDS.find(([band]) => band === raw)?.[1] || readableFallback(value);
 }
 
 function policyTarget(plan) {
@@ -869,11 +954,112 @@ function thermostatTarget(plan) {
 function deltaText(value) {
   const number = numberLike(value);
   if (number === null) return displayValue(value);
-  return `${number >= 0 ? "+" : ""}${number.toFixed(1)} °C`;
+  return `${number >= 0 ? "+" : ""}${number.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
 }
 
 function roomComfort(plan) {
   return plan.room_comfort || {};
+}
+
+function outdoorFeelingFromParts(parts = {}) {
+  const effective = numberLike(parts.effectiveTemperature ?? parts.effective_temperature);
+  const real = numberLike(parts.realTemperature ?? parts.real_temperature);
+  const forecast = numberLike(parts.forecastTemperature ?? parts.forecast_temperature);
+  const humidity = numberLike(parts.humidity ?? parts.relative_humidity ?? parts.outdoor_humidity);
+  const dewPoint = numberLike(parts.dewPoint ?? parts.dew_point);
+  const lux = numberLike(parts.outdoorLux ?? parts.outdoor_lux);
+  const weatherRaw = parts.weatherCondition ?? parts.weather_condition;
+  const weatherKey = normalizeUxKey(weatherRaw);
+  const weatherText = weatherConditionLabel(weatherRaw);
+  const basis = effective ?? real ?? forecast;
+  const quality = humidity === null && dewPoint === null ? "fallback" : "ok";
+  const reasons = [];
+  const details = {
+    temperature_basis: effective !== null ? "effective_outdoor_temperature" : real !== null ? "real_temperature" : "forecast_temperature",
+    weather: weatherText,
+    humidity_available: humidity !== null,
+    dew_point_available: dewPoint !== null,
+    quality,
+  };
+  if (basis === null) {
+    return {
+      outdoor_feeling_label: weatherKey ? weatherText : "Unbekannt",
+      outdoor_feeling_reason: weatherKey ? `Aus Wetterzustand ${weatherText} abgeleitet; Temperatur fehlt.` : "Keine auswertbaren Außenwerte verfügbar.",
+      outdoor_feeling_parts: details,
+    };
+  }
+  reasons.push(`${tempText(basis)} ${details.temperature_basis === "effective_outdoor_temperature" ? effectiveOutdoorLabel("technical") : "Außentemperatur"}`);
+  if (weatherKey) reasons.push(weatherText);
+  if (humidity !== null) reasons.push(`${Math.round(humidity)} % Luftfeuchte`);
+  if (dewPoint !== null) reasons.push(`Taupunkt ${tempText(dewPoint)}`);
+  if (lux !== null) reasons.push(`${Math.round(lux).toLocaleString("de-DE")} lx`);
+  if (forecast !== null && real !== null) {
+    const trend = forecast - real;
+    if (trend >= 2) reasons.push("Prognose wärmer");
+    if (trend <= -2) reasons.push("Prognose kühler");
+    details.forecast_trend = trend >= 2 ? "warming" : trend <= -2 ? "cooling" : "stable";
+  }
+
+  const wet = ["rainy", "pouring", "snowy_rainy", "lightning_rainy"].includes(weatherKey);
+  const snow = ["snowy", "snowy_rainy"].includes(weatherKey);
+  const sunny = ["sunny", "clear"].includes(weatherKey) || (lux !== null && lux >= 18000);
+  const lowSun = lux !== null && lux < 2500;
+  const veryHumid = humidity !== null && humidity >= 75;
+  const humid = humidity !== null && humidity >= 68;
+  const muggyDew = dewPoint !== null && dewPoint >= 20;
+
+  let label;
+  if ((veryHumid || (dewPoint !== null && dewPoint >= 22)) && basis >= 26) {
+    label = "drückend";
+  } else if ((humid || muggyDew) && basis >= 23) {
+    label = basis >= 25 ? "warm und schwül" : "schwül";
+  } else if (snow) {
+    label = basis < 3 ? "kalt und winterlich" : "kühl und nass";
+  } else if (wet && basis < 14) {
+    label = "frisch und regnerisch";
+  } else if (wet && (basis < 20 || lowSun)) {
+    label = "kühl und nass";
+  } else if (wet) {
+    label = "mild und regnerisch";
+  } else if (sunny && basis >= 20 && basis < 25 && !humid) {
+    label = "angenehm mild";
+  } else if (sunny && basis >= 25) {
+    label = "warm und sonnig";
+  } else if (basis < 5) {
+    label = "kalt";
+  } else if (basis < 11) {
+    label = "frisch";
+  } else if (basis < 16) {
+    label = "frisch";
+  } else if (basis < 21) {
+    label = "mild";
+  } else if (basis < 26) {
+    label = "angenehm mild";
+  } else {
+    label = "warm";
+  }
+
+  return {
+    outdoor_feeling_label: label,
+    outdoor_feeling_reason: reasons.join(" · ") || "Aus verfügbaren Außenwerten abgeleitet.",
+    outdoor_feeling_parts: details,
+  };
+}
+
+function outdoorFeeling(hass, app) {
+  const br = effectiveBreakdown(hass, app);
+  const inp = effectiveInputs(hass, app);
+  const weatherResolution = inp.weather_resolution || {};
+  const forecastResolution = inp.forecast_resolution || weatherResolution.forecast || {};
+  return outdoorFeelingFromParts({
+    effectiveTemperature: br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp),
+    realTemperature: inp.real_temperature ?? br.real_temperature,
+    forecastTemperature: inp.forecast_temperature ?? forecastResolution.value ?? stateText(hass, ENTITIES.forecastTemp3h),
+    weatherCondition: inp.weather_condition ?? forecastResolution.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "missing"),
+    humidity: inp.outdoor_humidity ?? inp.humidity ?? forecastResolution.humidity,
+    dewPoint: inp.dew_point ?? forecastResolution.dew_point,
+    outdoorLux: inp.outdoor_lux,
+  });
 }
 
 function modeClass(mode) {
@@ -960,7 +1146,7 @@ function policyConsequence(hass, app) {
   const status = stateText(hass, ENTITIES.applyStatus);
   const windowStatus = livingAreaWindowStatus(hass);
   if (windowStatus.blocked) {
-    return "Fenster oder Tür sind offen/gekippt. Die Policy blockiert Heizen im offenen Wohnbereich und hält Bad/Grundwärme separat.";
+    return "Fenster oder Tür sind offen/gekippt. Die Policy blockiert Heizen im offenen Wohnbereich und hält das Bad mit Eco separat.";
   }
   if (apply === "on") return `Auto-Apply ist aktiv. Die Policy kann Änderungen anwenden, sobald Ready ${ready} ist.`;
   if (status !== "missing") return `Auto-Apply ist aus. Änderungen bleiben als Plan sichtbar; manuelles Anwenden oder Dry Run ist möglich.`;
@@ -997,9 +1183,9 @@ function renderOverview(hass, app) {
 
     <div class="section grid cols-4">
       ${miniStat("mdi:home-check-outline", "3", "Räume im Plan")}
-      ${miniStat("mdi:thermometer-lines", tempText(stateText(hass, ENTITIES.effectiveTemp)), "Effektive Außentemperatur")}
-      ${miniStat("mdi:white-balance-sunny", weatherChip(hass, app), "Außenbedingung")}
-      ${miniStat("mdi:play-circle-outline", displayValue(stateText(hass, ENTITIES.lastApply), "Nie"), "Letzter Apply")}
+      ${miniStat("mdi:thermometer-lines", tempText(stateText(hass, ENTITIES.effectiveTemp)), effectiveOutdoorLabel("large"))}
+      ${miniStat("mdi:white-balance-sunny", outdoorFeeling(hass, app).outdoor_feeling_label, "Außengefühl")}
+      ${miniStat("mdi:play-circle-outline", formatRelativeOrDateTime(stateText(hass, ENTITIES.lastApply)), "Letzter Apply")}
     </div>
 
     <div class="section grid cols-4">
@@ -1016,11 +1202,12 @@ function renderOverview(hass, app) {
         ${kv("Forecast in 3h", tempText(stateText(hass, ENTITIES.forecastTemp3h)))}
       </div>
       <div class="card">
-        <h2>${icon("mdi:thermometer-lines")}Teff-Breakdown</h2>
+        <h2>${icon("mdi:thermometer-lines")}${esc(effectiveOutdoorLabel("large"))}</h2>
         ${kv("Licht (Lux)", inputs.outdoor_lux ?? "nicht geladen")}
         ${kv("Wetterkorrektur", tempText(br.weather_offset ?? "missing"))}
         ${kv("Prognosekorrektur", tempText(br.forecast_offset ?? "missing"))}
-        ${kv("Effektive Außentemperatur", tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
+        ${kv(effectiveOutdoorLabel("large"), tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
+        ${kv("Außengefühl", outdoorFeeling(hass, app).outdoor_feeling_label)}
       </div>
       <div class="card">
         <h2>${icon("mdi:shield-check-outline")}Konsequenzen</h2>
@@ -1030,7 +1217,7 @@ function renderOverview(hass, app) {
 
     <div class="section info-band">
       ${icon("mdi:lightbulb-outline")}
-      <div><b>Gut zu wissen</b><span class="muted">Die effektive Außentemperatur kombiniert Wetter, Lichtverhältnisse und Prognose, um die Heizstrategie vorausschauend anzupassen.</span></div>
+      <div><b>Gut zu wissen</b><span class="muted">${esc(UX_LABELS.effectiveOutdoor.explanation)}</span></div>
     </div>
   `;
 }
@@ -1127,7 +1314,7 @@ function renderZones(hass, app) {
       </div>
       <div class="chip-row">
         <span class="pill blue">3 Räume aktiv</span>
-        <span class="pill purple">Teff ${esc(tempText(stateText(hass, ENTITIES.effectiveTemp)))}</span>
+        <span class="pill purple">${esc(effectiveOutdoorLabel("chip"))} ${esc(tempText(stateText(hass, ENTITIES.effectiveTemp)))}</span>
       </div>
     </div>
   </div>
@@ -1198,7 +1385,7 @@ function renderThresholds(hass, app) {
     ["setpoints", "Setpoints"],
     ["living", "Wohnbereich"],
     ["bath", "Bad & Lüfter"],
-    ["weather", "Wetter & Teff"],
+    ["weather", "Wetter & Heizwert"],
     ["automation", "Automatik"],
     ["advanced", "Erweitert"],
   ].map(([id, label]) => `<button data-tuning-tab="${esc(id)}" class="${tab === id ? "active" : ""}">${esc(label)}</button>`).join("");
@@ -1223,7 +1410,7 @@ function renderThresholds(hass, app) {
     const active = activeBand === band;
     const sources = Object.values(keys).map((key) => data.sources?.[key]).filter(Boolean);
     return `<tr class="${active ? "active" : ""} ${rowDirty ? "dirty" : ""}">
-      <td><b>${esc(label)}</b>${active ? `<br><span class="pill purple">Aktiv</span>` : ""}</td>
+      <td><b>${esc(seasonBandLabel(band) || label)}</b>${active ? `<br><span class="pill purple">Aktiv</span>` : ""}</td>
       <td>${esc(months)}</td>
       <td>${numberInput(app, data, keys.off_threshold)}</td>
       <td>${comfortDisabled ? `<span class="muted">deaktiviert</span>` : numberInput(app, data, keys.comfort_threshold)}</td>
@@ -1271,7 +1458,7 @@ function renderThresholds(hass, app) {
   const weatherPanel = `<div class="grid cols-2">${groupCard("effective")}${renderEffective(hass, app)}</div>`;
   const automationPanel = `<div class="grid cols-2">${groupCard("boost")}${groupCard("apply")}</div>`;
   const bathFields = [
-    ["bath_comfort_suppression_teff", "Komfort bis Teff"],
+    ["bath_comfort_suppression_teff", "Komfort bis Heizwert"],
     ["bath_humidity_acute_threshold", "Akut-Luftfeuchte"],
     ["bath_humidity_acute_rise_threshold", "Akut-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
@@ -1324,6 +1511,7 @@ function renderEffective(hass, app) {
   const weatherResolution = inp.weather_resolution || {};
   const forecastResolution = inp.forecast_resolution || weatherResolution.forecast || {};
   const feelsLikeResolution = inp.feels_like_resolution || weatherResolution.feels_like || {};
+  const feeling = outdoorFeeling(hass, app);
   return `<div class="grid cols-2">
     <div class="card">
       <h2>${icon("mdi:database-eye-outline")}Inputs</h2>
@@ -1341,8 +1529,10 @@ function renderEffective(hass, app) {
       ${kv("Wetterkorrektur", tempText(br.weather_offset ?? "missing"))}
       ${kv("Prognosekorrektur", tempText(br.forecast_offset ?? "missing"))}
       ${kv("Lichtbonus", tempText(br.lux_bonus ?? "missing"))}
-      ${kv("Effektive Außentemperatur", tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
+      ${kv(`${effectiveOutdoorLabel("large")} (${effectiveOutdoorLabel("technical")})`, tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}
       ${kv("Datenqualität", qualityLabel(br.input_quality ?? "missing"))}
+      ${kv("Außengefühl", feeling.outdoor_feeling_label)}
+      ${kv("Begründung", feeling.outdoor_feeling_reason)}
     </div>
     <div class="card">
       <h2>${icon("mdi:link-variant")}Source Entities</h2>
@@ -1370,12 +1560,13 @@ function renderEffective(hass, app) {
 function renderWeather(hass, app) {
   const br = effectiveBreakdown(hass, app);
   const inp = effectiveInputs(hass, app);
+  const feeling = outdoorFeeling(hass, app);
   return `<div class="card">
     <div class="room-head">
       <div class="hero-icon">${icon("mdi:weather-partly-cloudy")}</div>
       <div>
-        <h2>Außenlage und Teff</h2>
-        <p class="muted">Wetter, Licht und Prognose werden nur für die Entscheidung bewertet; Fensterstatus bleibt separat im Raumkontext.</p>
+        <h2>Außenlage und ${esc(effectiveOutdoorLabel("chip"))}</h2>
+        <p class="muted">${esc(UX_LABELS.effectiveOutdoor.explanation)}</p>
       </div>
       <div class="target">${esc(tempText(br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp)))}</div>
     </div>
@@ -1384,6 +1575,7 @@ function renderWeather(hass, app) {
       ${miniStat("mdi:thermometer-water", tempText(inp.feels_like_temperature ?? stateText(hass, ENTITIES.outdoorFeelsLike)), "Gefühlt")}
       ${miniStat("mdi:weather-cloudy-clock", tempText(inp.forecast_temperature ?? stateText(hass, ENTITIES.forecastTemp3h)), "Prognose +3h")}
       ${miniStat("mdi:weather-partly-cloudy", weatherConditionLabel(inp.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "missing")), "Wetterzustand")}
+      ${miniStat("mdi:emoticon-outline", feeling.outdoor_feeling_label, "Außengefühl")}
     </div>
   </div>
   <div class="section">${renderEffective(hass, app)}</div>`;
@@ -1420,7 +1612,10 @@ function renderApply(hass, app) {
   const payload = debugPayload(hass, app);
   const lastApply = endpointDebug(app).last_apply_result || payload.last_apply_result || null;
   const applyActive = stateText(hass, ENTITIES.applyActive);
-  const lastApplyTime = lastApply?.timestamp ?? stateObj(hass, ENTITIES.lastApply)?.last_changed ?? stateText(hass, ENTITIES.lastApply);
+  const lastApplyState = stateText(hass, ENTITIES.lastApply);
+  const lastApplyTime = lastApply?.timestamp
+    ?? (["never", "missing", "unknown", "unavailable"].includes(String(lastApplyState).toLowerCase()) ? lastApplyState : lastApplyState)
+    ?? stateObj(hass, ENTITIES.lastApply)?.last_changed;
   return `<div class="grid cols-4">
     <div class="card apply-hero">
       <div class="room-head">
@@ -1434,8 +1629,8 @@ function renderApply(hass, app) {
     </div>
     <div class="card">
       <h2>${icon("mdi:calendar-clock")}Letzter Apply</h2>
-      <div class="target">${esc(lastApply ? localTime(lastApplyTime) : displayValue(stateText(hass, ENTITIES.lastApply), "Nie"))}</div>
-      <p class="muted">${esc(lastApply ? localDateTime(lastApplyTime) : "Bisher wurde noch nichts angewendet.")}</p>
+      <div class="target">${esc(formatRelativeOrDateTime(lastApplyTime))}</div>
+      <p class="muted">${esc(lastApply ? formatDateTimeLocal(lastApplyTime) : "Bisher wurde noch nichts angewendet.")}</p>
     </div>
     <div class="card">
       <h2>${icon("mdi:flask-outline")}Dry Run</h2>
@@ -1527,6 +1722,7 @@ function diagnosticPackage(hass, app, format = "markdown") {
     system_ready: payload.system_ready ?? stateText(hass, ENTITIES.systemReady),
     auto_apply: payload.apply_active ?? stateText(hass, ENTITIES.applyActive),
     apply_status: stateText(hass, ENTITIES.applyStatus),
+    apply_status_label: reasonLabel(stateText(hass, ENTITIES.applyStatus)),
     effective_outdoor_temperature: effective.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp),
     weather_resolver: {
       real_temperature: effectiveInputsData.real_temperature,
@@ -1536,6 +1732,7 @@ function diagnosticPackage(hass, app, format = "markdown") {
       forecast_reason: effectiveInputsData.forecast_resolution?.reason,
       feels_like_reason: effectiveInputsData.feels_like_resolution?.reason,
     },
+    outdoor_feeling: outdoorFeeling(hass, app),
     context: {
       presence_personal: context.presence_personal?.value,
       presence_household: context.presence_household?.value,
@@ -1585,27 +1782,29 @@ function diagnosticPackage(hass, app, format = "markdown") {
   return `# Benni Climate Policy Diagnosepaket
 
 ## Status
-- Zeitstempel: ${status.timestamp}
+- Zeitstempel: ${formatTimeDateLocal(status.timestamp)}
 - Integration Version: ${status.integration_version}
 - System ready: ${status.system_ready}
 - Auto apply: ${status.auto_apply}
-- Apply status: ${status.apply_status}
-- Effective outdoor temp: ${tempText(status.effective_outdoor_temperature)}
+- Apply status: ${status.apply_status_label}
+- ${effectiveOutdoorLabel("large")}: ${tempText(status.effective_outdoor_temperature)}
 
-## Wetter / Teff
+## Wetter / ${effectiveOutdoorLabel("chip")} (${effectiveOutdoorLabel("technical")})
 - Real: ${tempText(status.weather_resolver.real_temperature)}
 - Forecast +3h: ${tempText(status.weather_resolver.forecast_temperature)}
 - Feels-like: ${tempText(status.weather_resolver.feels_like_temperature)}
-- Zustand: ${displayValue(status.weather_resolver.weather_condition)}
-- Forecast reason: ${displayValue(status.weather_resolver.forecast_reason)}
+- Zustand: ${weatherConditionLabel(status.weather_resolver.weather_condition)}
+- Außengefühl: ${status.outdoor_feeling.outdoor_feeling_label}
+- Grund Außengefühl: ${status.outdoor_feeling.outdoor_feeling_reason}
+- Forecast reason: ${reasonLabel(status.weather_resolver.forecast_reason)}
 
 ## Kontext
 - Anwesenheit: ${presenceSummary(hass, app)}
-- Presence personal: ${displayValue(status.context.presence_personal)}
-- Presence household: ${displayValue(status.context.presence_household)}
-- Presence band: ${displayValue(status.context.presence_band)}
-- Bio: ${displayValue(status.context.bio_state)}
-- Day state: ${displayValue(status.context.day_state)}
+- Presence personal: ${translateContextValue("presence_personal", status.context.presence_personal)}
+- Presence household: ${translateContextValue("presence_household", status.context.presence_household)}
+- Presence band: ${translateContextValue("presence_band", status.context.presence_band)}
+- Bio: ${translateContextValue("bio_state", status.context.bio_state)}
+- Day state: ${translateContextValue("day_state", status.context.day_state)}
 
 ## Aktuelle Entscheidung
 ${lineForZone("living_room", "Wohnzimmer")}
@@ -1621,15 +1820,15 @@ ${lineForZone("bathroom", "Bad")}
 
 ## Performance
 - recalculate_count: ${displayValue(status.performance.recalculate_count)}
-- last_recalculate_reason: ${displayValue(status.performance.last_recalculate_reason)}
+- last_recalculate_reason: ${reasonLabel(status.performance.last_recalculate_reason)}
 - forecast_cache_hit: ${displayValue(status.performance.forecast_cache.hit)}
 - forecast_cache_age: ${displayValue(status.performance.forecast_cache.age)}
 - entity_publish_changed_count: ${displayValue(status.performance.entity_publish_changed_count)}
 - entity_publish_skipped_count: ${displayValue(status.performance.entity_publish_skipped_count)}
 
 ## Letzter Apply / Dry Run
-- Status: ${displayValue(status.last_apply?.status, "kein Apply")}
-- Reason: ${displayValue(status.last_apply?.reason, "kein Apply")}
+- Status: ${reasonLabel(status.last_apply?.status ?? "kein Apply")}
+- Reason: ${reasonLabel(status.last_apply?.reason ?? "kein Apply")}
 - Actions: ${Array.isArray(status.last_apply?.actions) ? status.last_apply.actions.length : 0}
 
 ## Input-Status kompakt
@@ -1721,7 +1920,7 @@ function renderDebug(hass, app) {
   const panels = { status: statusPanel, decision: decisionPanel, package: packagePanel, raw: rawPanel };
   return `<div class="grid cols-4">
     ${miniStat("mdi:refresh", perf.recalculate_count ?? dbg.recalculate_count ?? "unbekannt", "Recalculate Count")}
-    ${miniStat("mdi:lightning-bolt-outline", payload.last_recalculate_reason ?? dbg.last_recalculate_reason ?? skipReason, "Letzter Grund")}
+    ${miniStat("mdi:lightning-bolt-outline", reasonLabel(payload.last_recalculate_reason ?? dbg.last_recalculate_reason ?? skipReason), "Letzter Grund")}
     ${miniStat("mdi:cloud-check-outline", payload.forecast_cache_status ?? dbg.forecast_cache_status ?? "unbekannt", "Forecast-Cache")}
     ${miniStat("mdi:publish", payload.publish_count_24h ?? dbg.publish_count_24h ?? "unbekannt", "Publish 24h")}
   </div>
@@ -1824,7 +2023,7 @@ class BcpApp extends HTMLElement {
     const subtitles = {
       overview: "Bedingungen, Konsequenzen und Policy-Zustand auf einen Blick",
       zones: "Übersicht und Status deiner Räume",
-      weather: "Außenwerte, Prognose und Teff-Berechnung",
+      weather: "Außenwerte, Prognose und Heizwert-Berechnung",
       apply: "Apply, Dry Run und Vorschau",
       thresholds: "Heizstrategie je Jahreszeit optimieren",
       debug: "Tiefgehende Analyse und Systeminformationen",
@@ -1853,7 +2052,7 @@ class BcpApp extends HTMLElement {
             <div class="chips">
               ${statusChip(sys, sys === "on" ? "Bereit" : `Ready ${sys}`)}
               ${statusChip(apply, apply === "on" ? "Apply an" : "Apply aus")}
-              ${statusChip(effective === "missing" ? "missing" : "ok", `Teff ${tempText(effective)}`)}
+              ${statusChip(effective === "missing" ? "missing" : "ok", `${effectiveOutdoorLabel("chip")} ${tempText(effective)}`)}
             </div>
           </header>
           <div id="content">${content}</div>
