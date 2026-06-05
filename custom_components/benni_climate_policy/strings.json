@@ -48,7 +48,9 @@
           "bathroom_temperature": "Bathroom temperature",
           "bathroom_humidity": "Bathroom humidity",
           "bathroom_thermostat": "Bathroom thermostat",
-          "bath_fan": "Bathroom fan"
+          "bath_fan": "Bathroom fan",
+          "bath_toilet_activity": "Bathroom toilet activity",
+          "bath_shower_activity": "Bathroom shower activity"
         }
       },
       "windows": {
@@ -145,7 +147,9 @@
           "bathroom_temperature": "Bathroom temperature",
           "bathroom_humidity": "Bathroom humidity",
           "bathroom_thermostat": "Bathroom thermostat",
-          "bath_fan": "Bathroom fan"
+          "bath_fan": "Bathroom fan",
+          "bath_toilet_activity": "Bathroom toilet activity",
+          "bath_shower_activity": "Bathroom shower activity"
         }
       },
       "windows": {

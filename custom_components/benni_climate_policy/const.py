@@ -50,6 +50,8 @@ CONF_LIVING_WINDOW_RIGHT_TILT = "living_window_right_tilt"
 CONF_KITCHEN_PATIO_OPEN = "kitchen_patio_door_open"
 CONF_KITCHEN_PATIO_TILT = "kitchen_patio_door_tilt"
 CONF_BATH_FAN = "bath_fan"
+CONF_BATH_TOILET_ACTIVITY = "bath_toilet_activity"
+CONF_BATH_SHOWER_ACTIVITY = "bath_shower_activity"
 
 SERVICE_APPLY_NOW = "apply_now"
 SERVICE_APPLY_ZONE = "apply_zone"
@@ -108,4 +110,6 @@ PRESET = {
     CONF_KITCHEN_PATIO_OPEN: "binary_sensor.kitchen_patio_door_open_atomic",
     CONF_KITCHEN_PATIO_TILT: "binary_sensor.kitchen_patio_door_tilt_atomic",
     CONF_BATH_FAN: "switch.bath_fan",
+    CONF_BATH_TOILET_ACTIVITY: "binary_sensor.bath_toilet_active_combined",
+    CONF_BATH_SHOWER_ACTIVITY: "binary_sensor.bath_shower_active_combined",
 }

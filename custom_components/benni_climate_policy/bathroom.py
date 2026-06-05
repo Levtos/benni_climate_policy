@@ -221,6 +221,10 @@ class BathroomHumidityInput:
     bathroom_humidity: float | None
     living_temperature: float | None
     living_humidity: float | None
+    toilet_activity_active: bool = False
+    shower_activity_active: bool = False
+    fan_usage_hold_active: bool = False
+    fan_usage_hold_until: datetime | None = None
     previous_bathroom_humidity: float | None = None
     previous_bathroom_humidity_at: datetime | None = None
 
@@ -243,11 +247,16 @@ class BathroomFanPlan:
         payload = {
             "mode": self.mode,
             "target_switch_state": self.target_switch_state,
+            "reason": self.reason,
             "blocked_by": sorted(self.blocked_by),
             "policy_config_hash": self.policy_config_hash,
             "diagnostics": {
                 "ah_delta": self.diagnostics.get("ah_delta"),
                 "dewpoint": self.diagnostics.get("dewpoint"),
+                "toilet_activity_active": self.diagnostics.get("toilet_activity_active"),
+                "shower_activity_active": self.diagnostics.get("shower_activity_active"),
+                "fan_usage_hold_active": self.diagnostics.get("fan_usage_hold_active"),
+                "fan_usage_hold_until": self.diagnostics.get("fan_usage_hold_until"),
                 "heating_fan_coordination_state": self.diagnostics.get("heating_fan_coordination_state"),
             },
         }
@@ -297,6 +306,10 @@ def humidity_diagnostics(inp: BathroomHumidityInput) -> dict[str, Any]:
         "bathroom_humidity": inp.bathroom_humidity,
         "living_temperature": inp.living_temperature,
         "living_humidity": inp.living_humidity,
+        "toilet_activity_active": inp.toilet_activity_active,
+        "shower_activity_active": inp.shower_activity_active,
+        "fan_usage_hold_active": inp.fan_usage_hold_active,
+        "fan_usage_hold_until": inp.fan_usage_hold_until.isoformat() if inp.fan_usage_hold_until else None,
         "previous_bathroom_humidity": inp.previous_bathroom_humidity,
         "previous_bathroom_humidity_at": inp.previous_bathroom_humidity_at.isoformat() if inp.previous_bathroom_humidity_at else None,
         "bathroom_humidity_rise_5m": None,
@@ -478,6 +491,9 @@ def decide_bathroom_fan(
     mode: BathFanMode = "off"
     reason = "bath_fan_no_need"
     blockers: list[str] = []
+    toilet_activity = humidity_input.toilet_activity_active
+    shower_activity = humidity_input.shower_activity_active
+    usage_hold = humidity_input.fan_usage_hold_active or toilet_activity or shower_activity
 
     acute = (
         (humidity_rise_recent and humidity_rise > tuning.humidity_acute_rise_threshold)
@@ -485,9 +501,15 @@ def decide_bathroom_fan(
         (humidity is not None and humidity > tuning.humidity_acute_threshold)
         or (dewpoint is not None and dewpoint > tuning.dewpoint_acute_threshold)
     )
-    if acute:
+    if shower_activity:
+        mode = "akut"
+        reason = "bath_fan_shower_activity_hold"
+    elif acute:
         mode = "akut"
         reason = "bath_fan_acute_humidity_rise_or_threshold"
+    elif usage_hold:
+        mode = "stoss"
+        reason = "bath_fan_usage_hold"
     elif ah_delta is None:
         reason = "bath_fan_missing_humidity_delta"
         blockers.append("humidity_delta_missing")
@@ -513,11 +535,21 @@ def decide_bathroom_fan(
         humidity_input.bathroom_temperature is not None
         and humidity_input.bathroom_temperature < heating_plan.target_temperature - tuning.fan_heat_coordination_delta
     )
-    if strongly_heating and mode in ("nachluft", "stoss"):
+    if strongly_heating and mode in ("nachluft", "stoss") and not usage_hold:
         blockers.append("bath_heating_up_blocks_fan")
         mode = "off"
         reason = "bath_fan_blocked_by_heating_coordination"
-    coordination = "acute_overrides_heating" if acute else "heating_up" if strongly_heating else "clear"
+    coordination = (
+        "shower_activity_overrides_heating"
+        if shower_activity
+        else "acute_overrides_heating"
+        if acute
+        else "usage_hold_overrides_heating"
+        if usage_hold
+        else "heating_up"
+        if strongly_heating
+        else "clear"
+    )
 
     diagnostics.update({
         "heating_fan_coordination_state": coordination,

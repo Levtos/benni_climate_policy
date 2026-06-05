@@ -18,6 +18,8 @@ from .const import (
     CONF_APPLY_ACTIVE,
     CONF_APPLY_COOLDOWN_SECONDS,
     CONF_BATH_FAN,
+    CONF_BATH_SHOWER_ACTIVITY,
+    CONF_BATH_TOILET_ACTIVITY,
     CONF_COOLDOWN_SECONDS,
     CONF_FORECAST_TEMPERATURE,
     CONF_KITCHEN_PATIO_OPEN,
@@ -92,6 +94,7 @@ LAST_KNOWN_VALUE_TTL_SECONDS = 2 * 60 * 60
 TERRACE_SUSTAINED_OPEN_DELAY = timedelta(minutes=5)
 BOOST_STANDARD_DURATION = timedelta(minutes=45)
 BOOST_PRE_NIGHT_DURATION = timedelta(minutes=15)
+BATH_FAN_USAGE_HOLD_DURATION = timedelta(minutes=30)
 HEAT_STRENGTH = {"off": 0, "protection": 0, "spar": 1, "grundwaerme": 1, "komfort": 2, "boost": 3}
 IMMEDIATE_DECISION_REASONS = {
     "bio_sleep_forces_off",
@@ -131,6 +134,8 @@ def _state_value(value: str | None) -> str | None:
 def _input_role(key: str) -> str:
     if key == CONF_BATH_FAN:
         return "actuator"
+    if key in (CONF_BATH_TOILET_ACTIVITY, CONF_BATH_SHOWER_ACTIVITY):
+        return "activity"
     if key.startswith("context_"):
         return "context"
     if key in (
@@ -174,6 +179,7 @@ class ClimatePolicyCoordinator:
         self.apply_engine = ApplyEngine(hass)
         self._unsub: list[CALLBACK_TYPE] = []
         self._evaluate_debounce_unsub: CALLBACK_TYPE | None = None
+        self._bath_fan_usage_hold_unsub: CALLBACK_TYPE | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._ha_started = False
         self._started_at = time.monotonic()
@@ -200,6 +206,7 @@ class ClimatePolicyCoordinator:
         self._boost_reason: dict[str, str | None] = {zone: None for zone in HEATING_ZONES}
         self._last_day_state: str | None = None
         self._last_bathroom_humidity_sample: tuple[float, datetime] | None = None
+        self._bath_fan_usage_hold_until: datetime | None = None
         self._floor_slab_daily_samples: dict[str, float] = {}
         self.floor_slab_delta: FloorSlabDeltaBreakdown | None = None
         self.last_evaluate_duration_ms: float | None = None
@@ -268,6 +275,9 @@ class ClimatePolicyCoordinator:
         if self._evaluate_debounce_unsub:
             self._evaluate_debounce_unsub()
             self._evaluate_debounce_unsub = None
+        if self._bath_fan_usage_hold_unsub:
+            self._bath_fan_usage_hold_unsub()
+            self._bath_fan_usage_hold_unsub = None
         for unsub in self._unsub:
             unsub()
         self._unsub.clear()
@@ -285,6 +295,9 @@ class ClimatePolicyCoordinator:
     @callback
     def _on_state_change(self, event: Event) -> None:
         entity_id = event.data.get("entity_id", "unknown")
+        new_state = event.data.get("new_state")
+        if self._is_bath_fan_usage_source(entity_id) and getattr(new_state, "state", None) == "on":
+            self._extend_bath_fan_usage_hold(dt_util.now())
         self._schedule_evaluate(auto_apply=True, reason=f"state_change:{entity_id}")
 
     @callback
@@ -313,6 +326,37 @@ class ClimatePolicyCoordinator:
     def _state_obj(self, key: str):
         entity_id = self.config.get(key)
         return self.hass.states.get(entity_id) if entity_id else None
+
+    def _is_bath_fan_usage_source(self, entity_id: str | None) -> bool:
+        return entity_id in {
+            self.config.get(CONF_BATH_TOILET_ACTIVITY),
+            self.config.get(CONF_BATH_SHOWER_ACTIVITY),
+        }
+
+    def _extend_bath_fan_usage_hold(self, now: datetime) -> None:
+        self._bath_fan_usage_hold_until = now + BATH_FAN_USAGE_HOLD_DURATION
+        if self._bath_fan_usage_hold_unsub:
+            self._bath_fan_usage_hold_unsub()
+
+        @callback
+        def _expire(_now) -> None:
+            self._bath_fan_usage_hold_unsub = None
+            self.hass.async_create_task(self.async_evaluate(auto_apply=True, reason="bath_fan_usage_hold_expired"))
+
+        self._bath_fan_usage_hold_unsub = async_call_later(self.hass, BATH_FAN_USAGE_HOLD_DURATION.total_seconds(), _expire)
+
+    def _ensure_bath_fan_usage_hold_for_active_sources(self, now: datetime) -> None:
+        if self._state(CONF_BATH_TOILET_ACTIVITY) == "on" or self._state(CONF_BATH_SHOWER_ACTIVITY) == "on":
+            if self._bath_fan_usage_hold_until is None or self._bath_fan_usage_hold_until <= now:
+                self._extend_bath_fan_usage_hold(now)
+
+    def _bath_fan_usage_hold_active(self, now: datetime) -> bool:
+        if self._bath_fan_usage_hold_until is None:
+            return False
+        if now >= self._bath_fan_usage_hold_until:
+            self._bath_fan_usage_hold_until = None
+            return False
+        return True
 
     def _float_state(self, key: str, *, hold_last: bool = True) -> float | None:
         value = _float(self._state(key))
@@ -810,6 +854,7 @@ class ClimatePolicyCoordinator:
 
     def _bathroom_humidity_input(self) -> BathroomHumidityInput:
         now = dt_util.now()
+        self._ensure_bath_fan_usage_hold_for_active_sources(now)
         bathroom_humidity = self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM))
         previous = self._last_bathroom_humidity_sample
         if bathroom_humidity is not None:
@@ -819,6 +864,10 @@ class ClimatePolicyCoordinator:
             bathroom_humidity=bathroom_humidity,
             living_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING)),
             living_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING)),
+            toilet_activity_active=self._state(CONF_BATH_TOILET_ACTIVITY) == "on",
+            shower_activity_active=self._state(CONF_BATH_SHOWER_ACTIVITY) == "on",
+            fan_usage_hold_active=self._bath_fan_usage_hold_active(now),
+            fan_usage_hold_until=self._bath_fan_usage_hold_until,
             previous_bathroom_humidity=previous[0] if previous else None,
             previous_bathroom_humidity_at=previous[1] if previous else None,
         )

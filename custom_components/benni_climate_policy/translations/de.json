@@ -48,7 +48,9 @@
           "bathroom_temperature": "Bad Temperatur",
           "bathroom_humidity": "Bad Luftfeuchte",
           "bathroom_thermostat": "Bad Thermostat",
-          "bath_fan": "Badluefter"
+          "bath_fan": "Badluefter",
+          "bath_toilet_activity": "Bad Toilettenaktivitaet",
+          "bath_shower_activity": "Bad Duschaktivitaet"
         }
       },
       "windows": {
@@ -145,7 +147,9 @@
           "bathroom_temperature": "Bad Temperatur",
           "bathroom_humidity": "Bad Luftfeuchte",
           "bathroom_thermostat": "Bad Thermostat",
-          "bath_fan": "Badluefter"
+          "bath_fan": "Badluefter",
+          "bath_toilet_activity": "Bad Toilettenaktivitaet",
+          "bath_shower_activity": "Bad Duschaktivitaet"
         }
       },
       "windows": {

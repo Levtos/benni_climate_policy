@@ -49,8 +49,27 @@ def climate_input(temp=21.0):
     return BathroomClimateInput(temp, 55.0, "climate.bath")
 
 
-def humidity_input(*, bath_temp=24.0, bath_humidity=60.0, living_temp=21.0, living_humidity=50.0):
-    return BathroomHumidityInput(bath_temp, bath_humidity, living_temp, living_humidity)
+def humidity_input(
+    *,
+    bath_temp=24.0,
+    bath_humidity=60.0,
+    living_temp=21.0,
+    living_humidity=50.0,
+    toilet_activity=False,
+    shower_activity=False,
+    usage_hold=False,
+    usage_hold_until=None,
+):
+    return BathroomHumidityInput(
+        bath_temp,
+        bath_humidity,
+        living_temp,
+        living_humidity,
+        toilet_activity_active=toilet_activity,
+        shower_activity_active=shower_activity,
+        fan_usage_hold_active=usage_hold,
+        fan_usage_hold_until=usage_hold_until,
+    )
 
 
 def test_bathroom_defaults_ground_heat():
@@ -211,3 +230,55 @@ def test_bathroom_fan_heating_coordination_blocks_only_non_acute():
     acute = decide_bathroom_fan(humidity_input(bath_temp=17, bath_humidity=80), heating, now=now, day_state="afternoon", last_fan_active_at=now, tuning=tuning)
     assert acute.mode == "akut"
     assert acute.diagnostics["heating_fan_coordination_state"] == "acute_overrides_heating"
+
+
+def test_bathroom_fan_usage_hold_forces_30_minute_run():
+    now = datetime(2026, 1, 1, 12)
+    heating = decide_bathroom_climate(climate_input(temp=17), ctx(day_state="early_morning"), eff(10), now, bath_tuning_from_options({}))
+    tuning = bath_tuning_from_options({})
+
+    fan = decide_bathroom_fan(
+        humidity_input(
+            bath_temp=17,
+            bath_humidity=45,
+            living_temp=21,
+            living_humidity=45,
+            usage_hold=True,
+            usage_hold_until=now + timedelta(minutes=30),
+        ),
+        heating,
+        now=now,
+        day_state="early_night",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+
+    assert fan.mode == "stoss"
+    assert fan.target_switch_state == "on"
+    assert fan.reason == "bath_fan_usage_hold"
+    assert fan.blocked_by == []
+    assert fan.diagnostics["fan_usage_hold_active"] is True
+    assert fan.diagnostics["fan_usage_hold_until"] == (now + timedelta(minutes=30)).isoformat()
+    assert fan.diagnostics["heating_fan_coordination_state"] == "usage_hold_overrides_heating"
+
+
+def test_bathroom_fan_shower_activity_is_acute():
+    now = datetime(2026, 1, 1, 12)
+    heating = decide_bathroom_climate(climate_input(temp=17), ctx(day_state="early_morning"), eff(10), now, bath_tuning_from_options({}))
+    tuning = bath_tuning_from_options({})
+
+    fan = decide_bathroom_fan(
+        humidity_input(bath_temp=17, bath_humidity=45, living_temp=21, living_humidity=45, shower_activity=True),
+        heating,
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+
+    assert fan.mode == "akut"
+    assert fan.target_switch_state == "on"
+    assert fan.reason == "bath_fan_shower_activity_hold"
+    assert fan.blocked_by == []
+    assert fan.diagnostics["shower_activity_active"] is True
+    assert fan.diagnostics["heating_fan_coordination_state"] == "shower_activity_overrides_heating"
