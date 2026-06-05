@@ -178,6 +178,7 @@ class ClimatePolicyCoordinator:
         self.entry = entry
         self.apply_engine = ApplyEngine(hass)
         self._unsub: list[CALLBACK_TYPE] = []
+        self._ha_started_unsub: CALLBACK_TYPE | None = None
         self._evaluate_debounce_unsub: CALLBACK_TYPE | None = None
         self._bath_fan_usage_hold_unsub: CALLBACK_TYPE | None = None
         self._listeners: list[CALLBACK_TYPE] = []
@@ -259,7 +260,7 @@ class ClimatePolicyCoordinator:
             self._ha_started = True
             self._started_at = time.monotonic()
         else:
-            self._unsub.append(self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._on_started))
+            self._ha_started_unsub = self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._on_started)
 
         watch = {
             value
@@ -278,12 +279,16 @@ class ClimatePolicyCoordinator:
         if self._bath_fan_usage_hold_unsub:
             self._bath_fan_usage_hold_unsub()
             self._bath_fan_usage_hold_unsub = None
+        if self._ha_started_unsub:
+            self._ha_started_unsub()
+            self._ha_started_unsub = None
         for unsub in self._unsub:
             unsub()
         self._unsub.clear()
 
     @callback
     def _on_started(self, _event) -> None:
+        self._ha_started_unsub = None
         self._ha_started = True
         self._started_at = time.monotonic()
         self.hass.async_create_task(self.async_evaluate(auto_apply=False, reason="homeassistant_started"))

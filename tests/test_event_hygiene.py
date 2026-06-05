@@ -60,6 +60,12 @@ def test_coordinator_debounces_state_change_recalculations():
     assert "state_change:" in COORDINATOR_SOURCE
 
 
+def test_started_one_time_listener_is_not_unsubscribed_twice():
+    assert "self._ha_started_unsub = self.hass.bus.async_listen_once" in COORDINATOR_SOURCE
+    assert "self._unsub.append(self.hass.bus.async_listen_once" not in COORDINATOR_SOURCE
+    assert "self._ha_started_unsub = None" in _function_source(COORDINATOR_SOURCE, "_on_started")
+
+
 def test_coordinator_does_not_watch_self_generated_temperature_inputs():
     assert "SELF_GENERATED_INPUT_ENTITY_IDS" in COORDINATOR_SOURCE
     assert "def _is_watchable_entity_id" in COORDINATOR_SOURCE
