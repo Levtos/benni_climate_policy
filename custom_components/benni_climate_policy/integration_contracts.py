@@ -28,16 +28,16 @@ class EntityCandidate:
 
 
 CONTEXT_CANDIDATES: tuple[EntityCandidate, ...] = (
-    EntityCandidate(CONF_CONTEXT_ACTIVITY, "sensor.context_activity_state_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_BIO, "sensor.context_bio_state_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_DAY_CONTEXT, "sensor.context_day_context_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_DAY_STATE, "sensor.context_day_state_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_PRESENCE_BAND, "sensor.context_presence_band_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_PRESENCE_HOUSEHOLD, "sensor.context_presence_household_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_PRESENCE_PERSONAL, "sensor.context_presence_personal_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_PREHEAT_ACTIVE, "binary_sensor.context_presence_preheat_active_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_TRANSITION, "sensor.context_presence_transition_combined", "combined.context", "confirmed"),
-    EntityCandidate(CONF_CONTEXT_WORKDAY, "sensor.context_day_context_combined", "combined.context", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_ACTIVITY, "sensor.benni_combined_context_activity_state", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_BIO, "sensor.benni_combined_context_bio_state", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_DAY_CONTEXT, "sensor.benni_combined_context_day_context", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_DAY_STATE, "sensor.benni_combined_context_day_state", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_PRESENCE_BAND, "sensor.benni_combined_context_presence_band", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_PRESENCE_HOUSEHOLD, "sensor.benni_combined_context_presence_household", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_PRESENCE_PERSONAL, "sensor.benni_combined_context_presence_personal", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_PREHEAT_ACTIVE, "sensor.benni_combined_context_presence_preheat_active", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_TRANSITION, "sensor.benni_combined_context_presence_transition", "benni_core_devices", "confirmed"),
+    EntityCandidate(CONF_CONTEXT_WORKDAY, "sensor.benni_combined_context_day_context", "benni_core_devices", "confirmed"),
 )
 
 

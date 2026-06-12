@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "benni_climate_policy"
-INTEGRATION_VERSION = "0.1.0"
+INTEGRATION_VERSION = "0.1.1"
 DATA_COORDINATOR = "coordinator"
 
 CONF_APPLY_ACTIVE = "apply_active"
@@ -79,37 +79,40 @@ SELF_GENERATED_INPUT_ENTITY_IDS = frozenset({
 })
 
 PRESET = {
-    CONF_CONTEXT_ACTIVITY: "sensor.context_activity_state_combined",
-    CONF_CONTEXT_BIO: "sensor.context_bio_state_combined",
-    CONF_CONTEXT_DAY_CONTEXT: "sensor.context_day_context_combined",
-    CONF_CONTEXT_DAY_STATE: "sensor.context_day_state_combined",
-    CONF_CONTEXT_PRESENCE_BAND: "sensor.context_presence_band_combined",
-    CONF_CONTEXT_PRESENCE_HOUSEHOLD: "sensor.context_presence_household_combined",
-    CONF_CONTEXT_PRESENCE_PERSONAL: "sensor.context_presence_personal_combined",
-    CONF_CONTEXT_PREHEAT_ACTIVE: "binary_sensor.context_presence_preheat_active_combined",
-    CONF_CONTEXT_TRANSITION: "sensor.context_presence_transition_combined",
-    CONF_CONTEXT_WORKDAY: "sensor.context_day_context_combined",
-    CONF_OUTDOOR_TEMPERATURE: "sensor.garden_temperature_atomic",
-    CONF_OUTDOOR_HUMIDITY: "sensor.weather_humidity_atomic",
-    CONF_OUTDOOR_WIND_SPEED: "sensor.weather_wind_speed_atomic",
-    CONF_WEATHER_CONDITION: "sensor.weather_condition_atomic",
+    CONF_CONTEXT_ACTIVITY: "sensor.benni_combined_context_activity_state",
+    CONF_CONTEXT_BIO: "sensor.benni_combined_context_bio_state",
+    CONF_CONTEXT_DAY_CONTEXT: "sensor.benni_combined_context_day_context",
+    CONF_CONTEXT_DAY_STATE: "sensor.benni_combined_context_day_state",
+    CONF_CONTEXT_PRESENCE_BAND: "sensor.benni_combined_context_presence_band",
+    CONF_CONTEXT_PRESENCE_HOUSEHOLD: "sensor.benni_combined_context_presence_household",
+    CONF_CONTEXT_PRESENCE_PERSONAL: "sensor.benni_combined_context_presence_personal",
+    CONF_CONTEXT_PREHEAT_ACTIVE: "sensor.benni_combined_context_presence_preheat_active",
+    CONF_CONTEXT_TRANSITION: "sensor.benni_combined_context_presence_transition",
+    CONF_CONTEXT_WORKDAY: "sensor.benni_combined_context_day_context",
+    CONF_OUTDOOR_TEMPERATURE: "sensor.benni_device_garden_climate",
+    CONF_OUTDOOR_HUMIDITY: "sensor.benni_device_weather_humidity",
+    CONF_OUTDOOR_WIND_SPEED: "sensor.benni_device_weather_wind_speed",
+    CONF_WEATHER_CONDITION: "sensor.benni_device_weather_condition",
     CONF_WEATHER_ENTITY: "weather.dwd_home",
-    CONF_OUTDOOR_LUX: "sensor.garden_illuminance_atomic",
+    CONF_OUTDOOR_LUX: "sensor.benni_device_garden_lux",
     CONF_SUN: "sun.sun",
     CONF_SYSTEM_READY: "binary_sensor.system_climate_ready",
-    CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING): "sensor.living_temperature_atomic",
+    CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING): "sensor.benni_device_living_climate",
+    # Core environment humidity is currently exposed as an attribute, while this
+    # integration reads source states only. Keep humidity on YAML atomics until
+    # attribute source bindings or derived Core humidity sensors exist.
     CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING): "sensor.living_humidity_atomic",
-    CONF_ZONE_TEMPERATURE.format(zone=ZONE_KITCHEN): "sensor.kitchen_temperature_atomic",
+    CONF_ZONE_TEMPERATURE.format(zone=ZONE_KITCHEN): "sensor.benni_device_kitchen_climate",
     CONF_ZONE_HUMIDITY.format(zone=ZONE_KITCHEN): "sensor.kitchen_humidity_atomic",
-    CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM): "sensor.bath_temperature_atomic",
+    CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM): "sensor.benni_device_bath_climate",
     CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM): "sensor.bath_humidity_atomic",
-    CONF_LIVING_WINDOW_LEFT_OPEN: "binary_sensor.living_window_left_open_atomic",
-    CONF_LIVING_WINDOW_LEFT_TILT: "binary_sensor.living_window_left_tilt_atomic",
-    CONF_LIVING_WINDOW_RIGHT_OPEN: "binary_sensor.living_window_right_open_atomic",
-    CONF_LIVING_WINDOW_RIGHT_TILT: "binary_sensor.living_window_right_tilt_atomic",
-    CONF_KITCHEN_PATIO_OPEN: "binary_sensor.kitchen_patio_door_open_atomic",
-    CONF_KITCHEN_PATIO_TILT: "binary_sensor.kitchen_patio_door_tilt_atomic",
+    CONF_LIVING_WINDOW_LEFT_OPEN: "sensor.benni_device_living_window_left",
+    CONF_LIVING_WINDOW_LEFT_TILT: "sensor.benni_device_living_window_left",
+    CONF_LIVING_WINDOW_RIGHT_OPEN: "sensor.benni_device_living_window_right",
+    CONF_LIVING_WINDOW_RIGHT_TILT: "sensor.benni_device_living_window_right",
+    CONF_KITCHEN_PATIO_OPEN: "sensor.benni_device_kitchen_patio_door",
+    CONF_KITCHEN_PATIO_TILT: "sensor.benni_device_kitchen_patio_door",
     CONF_BATH_FAN: "switch.bath_fan",
-    CONF_BATH_TOILET_ACTIVITY: "binary_sensor.bath_toilet_active_combined",
-    CONF_BATH_SHOWER_ACTIVITY: "binary_sensor.bath_shower_active_combined",
+    CONF_BATH_TOILET_ACTIVITY: "sensor.benni_combined_bath_toilet_active",
+    CONF_BATH_SHOWER_ACTIVITY: "sensor.benni_combined_bath_shower_active",
 }
