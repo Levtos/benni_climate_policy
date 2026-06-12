@@ -10,6 +10,12 @@ const ENTITIES = {
   applyStatus: "sensor.climate_policy_apply_status",
   lastApply: "sensor.climate_policy_last_apply",
   debugSummary: "sensor.climate_debug_summary",
+  weatherCondition: "sensor.benni_device_weather_condition",
+  contextPresencePersonal: "sensor.benni_combined_context_presence_personal",
+  contextPresenceBand: "sensor.benni_combined_context_presence_band",
+  contextPresenceHousehold: "sensor.benni_combined_context_presence_household",
+  contextDayContext: "sensor.benni_combined_context_day_context",
+  contextBioState: "sensor.benni_combined_context_bio_state",
   bathroomFanMode: "sensor.bathroom_fan_mode",
   bathroomFanPlanHash: "sensor.bathroom_fan_plan_hash",
   bathroomFanBlocked: "binary_sensor.bathroom_fan_apply_blocked",
@@ -23,7 +29,7 @@ const ZONES = {
   living_room: {
     label: "Wohnzimmer",
     tempKey: "living_room_temperature",
-    tempEntity: "sensor.living_temperature_atomic",
+    tempEntity: "sensor.benni_device_living_climate",
     mode: "sensor.living_room_climate_mode",
     target: "sensor.living_room_climate_target_temp",
     planHash: "sensor.living_room_climate_plan_hash",
@@ -35,7 +41,7 @@ const ZONES = {
   kitchen: {
     label: "Küche",
     tempKey: "kitchen_temperature",
-    tempEntity: "sensor.kitchen_temperature_atomic",
+    tempEntity: "sensor.benni_device_kitchen_climate",
     mode: "sensor.kitchen_climate_mode",
     target: "sensor.kitchen_climate_target_temp",
     planHash: "sensor.kitchen_climate_plan_hash",
@@ -47,7 +53,7 @@ const ZONES = {
   bathroom: {
     label: "Bad",
     tempKey: "bathroom_temperature",
-    tempEntity: "sensor.bath_temperature_atomic",
+    tempEntity: "sensor.benni_device_bath_climate",
     mode: "sensor.bathroom_climate_mode",
     target: "sensor.bathroom_climate_target_temp",
     planHash: "sensor.bathroom_climate_plan_hash",
@@ -59,9 +65,9 @@ const ZONES = {
 };
 
 const LIVING_AREA_WINDOWS = [
-  ["Wohnzimmerfenster links", "binary_sensor.living_window_left_open_atomic", "binary_sensor.living_window_left_tilt_atomic"],
-  ["Wohnzimmerfenster rechts", "binary_sensor.living_window_right_open_atomic", "binary_sensor.living_window_right_tilt_atomic"],
-  ["Terrassentür Küche", "binary_sensor.kitchen_patio_door_open_atomic", "binary_sensor.kitchen_patio_door_tilt_atomic"],
+  ["Wohnzimmerfenster links", "sensor.benni_device_living_window_left", "sensor.benni_device_living_window_left"],
+  ["Wohnzimmerfenster rechts", "sensor.benni_device_living_window_right", "sensor.benni_device_living_window_right"],
+  ["Terrassentür Küche", "sensor.benni_device_kitchen_patio_door", "sensor.benni_device_kitchen_patio_door"],
 ];
 
 const NAV = [
@@ -907,9 +913,9 @@ function presenceSummary(hass, app) {
     ctx.presence_personal?.value
       ?? ctx.presence_band?.value
       ?? ctx.presence_household?.value
-      ?? stateText(hass, "sensor.context_presence_personal_combined", null)
-      ?? stateText(hass, "sensor.context_presence_band_combined", null)
-      ?? stateText(hass, "sensor.context_presence_household_combined", "nicht geladen"),
+      ?? stateText(hass, ENTITIES.contextPresencePersonal, null)
+      ?? stateText(hass, ENTITIES.contextPresenceBand, null)
+      ?? stateText(hass, ENTITIES.contextPresenceHousehold, "nicht geladen"),
   );
 }
 
@@ -995,10 +1001,10 @@ function compactReason(reason, zone = "") {
 function livingAreaWindowStatus(hass) {
   const active = [];
   for (const [label, openEntity, tiltEntity] of LIVING_AREA_WINDOWS) {
-    const open = stateText(hass, openEntity, "missing");
-    const tilt = stateText(hass, tiltEntity, "missing");
-    if (open === "on") active.push(`${label} offen`);
-    if (tilt === "on") active.push(`${label} gekippt`);
+    const open = openEntity === tiltEntity ? attr(hass, openEntity, "open", stateText(hass, openEntity, "missing") === "on") : stateText(hass, openEntity, "missing") === "on";
+    const tilt = openEntity === tiltEntity ? attr(hass, openEntity, "tilted", false) : stateText(hass, tiltEntity, "missing") === "on";
+    if (open) active.push(`${label} offen`);
+    if (tilt) active.push(`${label} gekippt`);
   }
   if (!active.length) return { blocked: false, label: "Fenster/Tür geschlossen" };
   return {
@@ -1163,7 +1169,7 @@ function outdoorFeeling(hass, app) {
     effectiveTemperature: br.effective_temperature ?? stateText(hass, ENTITIES.effectiveTemp),
     realTemperature: inp.real_temperature ?? br.real_temperature,
     forecastTemperature: inp.forecast_temperature ?? forecastResolution.value ?? stateText(hass, ENTITIES.forecastTemp3h),
-    weatherCondition: inp.weather_condition ?? forecastResolution.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "missing"),
+    weatherCondition: inp.weather_condition ?? forecastResolution.weather_condition ?? stateText(hass, ENTITIES.weatherCondition, "missing"),
     humidity: inp.outdoor_humidity ?? inp.humidity ?? forecastResolution.humidity,
     dewPoint: inp.dew_point ?? forecastResolution.dew_point,
     outdoorLux: inp.outdoor_lux,
@@ -1268,7 +1274,7 @@ function primaryConsequence(plan, zone) {
 
 function weatherChip(hass, app) {
   const inputs = effectiveInputs(hass, app);
-  return weatherConditionLabel(inputs.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "Wetter"));
+  return weatherConditionLabel(inputs.weather_condition ?? stateText(hass, ENTITIES.weatherCondition, "Wetter"));
 }
 
 function policyConsequence(hass, app) {
@@ -1413,8 +1419,8 @@ function renderOverview(hass, app) {
       <div class="card">
         <h2>${icon("mdi:account-clock-outline")}Kontext</h2>
         ${kv("Anwesenheit", presenceSummary(hass, app))}
-        ${kv("Tagesstatus", translateContextValue("day_context", ctx.day_context?.value))}
-        ${kv("Bio-Status", translateContextValue("bio_state", ctx.bio_state?.value))}
+        ${kv("Tagesstatus", translateContextValue("day_context", ctx.day_context?.value ?? stateText(hass, ENTITIES.contextDayContext, null)))}
+        ${kv("Bio-Status", translateContextValue("bio_state", ctx.bio_state?.value ?? stateText(hass, ENTITIES.contextBioState, null)))}
       </div>
       <div class="card">
         <h2>${icon("mdi:weather-partly-cloudy")}Außenbedingungen</h2>
@@ -1814,7 +1820,7 @@ function renderWeather(hass, app) {
       ${miniStat("mdi:thermometer", tempText(inp.real_temperature ?? br.real_temperature ?? "missing"), "Real draußen")}
       ${miniStat("mdi:thermometer-water", tempText(inp.feels_like_temperature ?? stateText(hass, ENTITIES.outdoorFeelsLike)), "Gefühlt")}
       ${miniStat("mdi:weather-cloudy-clock", tempText(inp.forecast_temperature ?? stateText(hass, ENTITIES.forecastTemp3h)), "Prognose +3h")}
-      ${miniStat("mdi:weather-partly-cloudy", weatherConditionLabel(inp.weather_condition ?? stateText(hass, "sensor.weather_condition_atomic", "missing")), "Wetterzustand")}
+      ${miniStat("mdi:weather-partly-cloudy", weatherConditionLabel(inp.weather_condition ?? stateText(hass, ENTITIES.weatherCondition, "missing")), "Wetterzustand")}
       ${miniStat("mdi:emoticon-outline", feeling.outdoor_feeling_label, "Außengefühl")}
     </div>
   </div>

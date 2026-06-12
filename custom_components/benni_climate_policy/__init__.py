@@ -1,7 +1,7 @@
 """Benni Climate Policy integration."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -21,12 +21,71 @@ from .const import (
 
 PLATFORM_NAMES = ["sensor", "binary_sensor", "switch", "button"]
 
+LEGACY_ENTITY_REPLACEMENTS: dict[str, str] = {
+    "sensor.context_activity_state_combined": "sensor.benni_combined_context_activity_state",
+    "sensor.context_bio_state_combined": "sensor.benni_combined_context_bio_state",
+    "sensor.context_day_context_combined": "sensor.benni_combined_context_day_context",
+    "sensor.context_day_state_combined": "sensor.benni_combined_context_day_state",
+    "sensor.context_presence_band_combined": "sensor.benni_combined_context_presence_band",
+    "sensor.context_presence_household_combined": "sensor.benni_combined_context_presence_household",
+    "sensor.context_presence_personal_combined": "sensor.benni_combined_context_presence_personal",
+    "binary_sensor.context_presence_preheat_active_combined": "sensor.benni_combined_context_presence_preheat_active",
+    "sensor.context_presence_transition_combined": "sensor.benni_combined_context_presence_transition",
+    "sensor.garden_temperature_atomic": "sensor.benni_device_garden_climate",
+    "sensor.weather_humidity_atomic": "sensor.benni_device_weather_humidity",
+    "sensor.weather_wind_speed_atomic": "sensor.benni_device_weather_wind_speed",
+    "sensor.weather_condition_atomic": "sensor.benni_device_weather_condition",
+    "sensor.garden_illuminance_atomic": "sensor.benni_device_garden_lux",
+    "sensor.living_temperature_atomic": "sensor.benni_device_living_climate",
+    "sensor.kitchen_temperature_atomic": "sensor.benni_device_kitchen_climate",
+    "sensor.bath_temperature_atomic": "sensor.benni_device_bath_climate",
+    "binary_sensor.living_window_left_open_atomic": "sensor.benni_device_living_window_left",
+    "binary_sensor.living_window_left_tilt_atomic": "sensor.benni_device_living_window_left",
+    "binary_sensor.living_window_right_open_atomic": "sensor.benni_device_living_window_right",
+    "binary_sensor.living_window_right_tilt_atomic": "sensor.benni_device_living_window_right",
+    "binary_sensor.kitchen_patio_door_open_atomic": "sensor.benni_device_kitchen_patio_door",
+    "binary_sensor.kitchen_patio_door_tilt_atomic": "sensor.benni_device_kitchen_patio_door",
+    "binary_sensor.bath_toilet_active_combined": "sensor.benni_combined_bath_toilet_active",
+    "binary_sensor.bath_shower_active_combined": "sensor.benni_combined_bath_shower_active",
+}
+
+
+def _replace_legacy_entities(value: Any) -> tuple[Any, bool]:
+    if isinstance(value, str):
+        replacement = LEGACY_ENTITY_REPLACEMENTS.get(value)
+        return (replacement, True) if replacement else (value, False)
+    if isinstance(value, dict):
+        changed = False
+        replaced: dict[Any, Any] = {}
+        for key, item in value.items():
+            new_item, item_changed = _replace_legacy_entities(item)
+            replaced[key] = new_item
+            changed = changed or item_changed
+        return replaced, changed
+    if isinstance(value, list):
+        changed = False
+        replaced_items: list[Any] = []
+        for item in value:
+            new_item, item_changed = _replace_legacy_entities(item)
+            replaced_items.append(new_item)
+            changed = changed or item_changed
+        return replaced_items, changed
+    return value, False
+
+
+def _migrate_legacy_source_entities(hass: "HomeAssistant", entry: "ConfigEntry") -> None:
+    data, data_changed = _replace_legacy_entities(dict(entry.data))
+    options, options_changed = _replace_legacy_entities(dict(entry.options))
+    if data_changed or options_changed:
+        hass.config_entries.async_update_entry(entry, data=data, options=options)
+
 
 async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
     from homeassistant.const import Platform
 
     from .coordinator import ClimatePolicyCoordinator
 
+    _migrate_legacy_source_entities(hass, entry)
     platforms = [Platform(name) for name in PLATFORM_NAMES]
     coord = ClimatePolicyCoordinator(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {DATA_COORDINATOR: coord}

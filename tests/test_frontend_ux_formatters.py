@@ -87,13 +87,13 @@ const fakeHass = {
   },
 };
 const livingAreaWindows = [
-  ["Wohnzimmerfenster links", "binary_sensor.living_window_left_open_atomic", "binary_sensor.living_window_left_tilt_atomic"],
-  ["Wohnzimmerfenster rechts", "binary_sensor.living_window_right_open_atomic", "binary_sensor.living_window_right_tilt_atomic"],
-  ["Terrassentür Küche", "binary_sensor.kitchen_patio_door_open_atomic", "binary_sensor.kitchen_patio_door_tilt_atomic"],
+  ["Wohnzimmerfenster links", "sensor.benni_device_living_window_left", "sensor.benni_device_living_window_left"],
+  ["Wohnzimmerfenster rechts", "sensor.benni_device_living_window_right", "sensor.benni_device_living_window_right"],
+  ["Terrassentür Küche", "sensor.benni_device_kitchen_patio_door", "sensor.benni_device_kitchen_patio_door"],
 ];
 for (const [, openEntity, tiltEntity] of livingAreaWindows) {
-  fakeHass.states[openEntity] = { state: "off", attributes: {} };
-  fakeHass.states[tiltEntity] = { state: "off", attributes: {} };
+  fakeHass.states[openEntity] = { state: "off", attributes: { open: false, tilted: false } };
+  fakeHass.states[tiltEntity] = { state: "off", attributes: { open: false, tilted: false } };
 }
 const fakeApp = {
   _debugPayload: {
@@ -116,7 +116,7 @@ values.fanIndicator = context.heroIndicator(fakeHass, { _debugPayload: { bathroo
 values.windowIndicator = context.heroIndicator({
   states: {
     ...fakeHass.states,
-    "binary_sensor.living_window_right_tilt_atomic": { state: "on", attributes: {} },
+    "sensor.benni_device_living_window_right": { state: "on", attributes: { open: false, tilted: true } },
   },
 }, { _debugPayload: {} });
 values.safetyIndicator = context.heroIndicator(fakeHass, {
