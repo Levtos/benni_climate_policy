@@ -172,6 +172,23 @@ def _is_watchable_entity_id(value: Any) -> bool:
     return isinstance(value, str) and "." in value and value not in SELF_GENERATED_INPUT_ENTITY_IDS
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value) in ("on", "open", "true", "True", "1")
+
+
+def _window_activity_from_state(state: Any, attr_name: str, *, active_states: tuple[Any, ...]) -> tuple[str | None, bool]:
+    if state is None:
+        return None, False
+    if attr_name in state.attributes:
+        active = _coerce_bool(state.attributes.get(attr_name))
+        return ("on" if active else "off"), active
+    return state.state, state.state in active_states
+
+
 class ClimatePolicyCoordinator:
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
@@ -619,14 +636,24 @@ class ClimatePolicyCoordinator:
     ) -> WindowState:
         open_state = self._state_obj(open_key)
         tilt_state = self._state_obj(tilt_key)
+        open_value, open_active = _window_activity_from_state(
+            open_state,
+            "open",
+            active_states=tuple(value for value in ("on", "open", "true", "True") if value is not False),
+        )
+        tilt_value, tilt_active = _window_activity_from_state(
+            tilt_state,
+            "tilted",
+            active_states=("on", "open", "true", "True", True),
+        )
         active_since = None
-        if open_state and open_state.state not in ("off", "closed", "false", "False"):
+        if open_state and open_active:
             active_since = open_state.last_changed
-        if tilt_state and tilt_state.state in ("on", "open", "true", "True"):
+        if tilt_state and tilt_active:
             active_since = min(active_since, tilt_state.last_changed) if active_since else tilt_state.last_changed
         return WindowState(
-            open_state.state if open_state else None,
-            tilt_state.state if tilt_state else None,
+            open_value,
+            tilt_value,
             active_since=active_since,
             sustained_open_delay=sustained_open_delay,
         )
