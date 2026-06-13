@@ -25,10 +25,46 @@ from .bathroom import (
 )
 from .const import (
     CONF_APPLY_COOLDOWN_SECONDS,
+    CONF_BATH_FAN,
+    CONF_BATH_SHOWER_ACTIVITY,
+    CONF_BATH_TOILET_ACTIVITY,
+    CONF_CONTEXT_ACTIVITY,
+    CONF_CONTEXT_BIO,
+    CONF_CONTEXT_DAY_CONTEXT,
+    CONF_CONTEXT_DAY_STATE,
+    CONF_CONTEXT_PRESENCE_BAND,
+    CONF_CONTEXT_PRESENCE_HOUSEHOLD,
+    CONF_CONTEXT_PRESENCE_PERSONAL,
+    CONF_CONTEXT_PREHEAT_ACTIVE,
+    CONF_CONTEXT_TRANSITION,
+    CONF_CONTEXT_WAKEUP,
+    CONF_CONTEXT_WORKDAY,
     CONF_COOLDOWN_SECONDS,
+    CONF_FORECAST_TEMPERATURE,
+    CONF_KITCHEN_PATIO_OPEN,
+    CONF_KITCHEN_PATIO_TILT,
+    CONF_LIVING_WINDOW_LEFT_OPEN,
+    CONF_LIVING_WINDOW_LEFT_TILT,
+    CONF_LIVING_WINDOW_RIGHT_OPEN,
+    CONF_LIVING_WINDOW_RIGHT_TILT,
+    CONF_OUTDOOR_FEELS_LIKE,
+    CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_LUX,
+    CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_WIND_SPEED,
     CONF_STARTUP_BLOCK_SECONDS,
+    CONF_SUN,
+    CONF_SYSTEM_READY,
+    CONF_WEATHER_CONDITION,
+    CONF_WEATHER_ENTITY,
+    CONF_ZONE_HUMIDITY,
+    CONF_ZONE_TEMPERATURE,
+    CONF_ZONE_THERMOSTAT,
     DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_STARTUP_BLOCK_SECONDS,
+    ZONE_BATHROOM,
+    ZONE_KITCHEN,
+    ZONE_LIVING,
 )
 from .policy import (
     DEFAULT_THRESHOLD_BANDS,
@@ -150,6 +186,49 @@ EDITABLE_OPTION_KEYS = tuple(
     for key in TUNING_SECTIONS[section]
 )
 EDITABLE_OPTION_KEY_SET = set(EDITABLE_OPTION_KEYS)
+SOURCE_BINDING_KEYS = (
+    CONF_CONTEXT_ACTIVITY,
+    CONF_CONTEXT_BIO,
+    CONF_CONTEXT_DAY_CONTEXT,
+    CONF_CONTEXT_DAY_STATE,
+    CONF_CONTEXT_PRESENCE_BAND,
+    CONF_CONTEXT_PRESENCE_HOUSEHOLD,
+    CONF_CONTEXT_PRESENCE_PERSONAL,
+    CONF_CONTEXT_PREHEAT_ACTIVE,
+    CONF_CONTEXT_TRANSITION,
+    CONF_CONTEXT_WAKEUP,
+    CONF_CONTEXT_WORKDAY,
+    CONF_OUTDOOR_TEMPERATURE,
+    CONF_OUTDOOR_FEELS_LIKE,
+    CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_WIND_SPEED,
+    CONF_FORECAST_TEMPERATURE,
+    CONF_WEATHER_ENTITY,
+    CONF_WEATHER_CONDITION,
+    CONF_OUTDOOR_LUX,
+    CONF_SUN,
+    CONF_SYSTEM_READY,
+    CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING),
+    CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING),
+    CONF_ZONE_THERMOSTAT.format(zone=ZONE_LIVING),
+    CONF_ZONE_TEMPERATURE.format(zone=ZONE_KITCHEN),
+    CONF_ZONE_HUMIDITY.format(zone=ZONE_KITCHEN),
+    CONF_ZONE_THERMOSTAT.format(zone=ZONE_KITCHEN),
+    CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM),
+    CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM),
+    CONF_ZONE_THERMOSTAT.format(zone=ZONE_BATHROOM),
+    CONF_LIVING_WINDOW_LEFT_OPEN,
+    CONF_LIVING_WINDOW_LEFT_TILT,
+    CONF_LIVING_WINDOW_RIGHT_OPEN,
+    CONF_LIVING_WINDOW_RIGHT_TILT,
+    CONF_KITCHEN_PATIO_OPEN,
+    CONF_KITCHEN_PATIO_TILT,
+    CONF_BATH_FAN,
+    CONF_BATH_TOILET_ACTIVITY,
+    CONF_BATH_SHOWER_ACTIVITY,
+)
+SOURCE_BINDING_KEY_SET = set(SOURCE_BINDING_KEYS)
+SERVICE_EDITABLE_KEY_SET = EDITABLE_OPTION_KEY_SET | SOURCE_BINDING_KEY_SET
 
 
 @dataclass(frozen=True)
@@ -443,7 +522,7 @@ def validated_options_update(
     current = dict(current_options or {})
     updates = dict(updates or {})
     specs = option_specs()
-    unknown = sorted({*updates, *reset_keys} - EDITABLE_OPTION_KEY_SET)
+    unknown = sorted({*updates, *reset_keys} - SERVICE_EDITABLE_KEY_SET)
     if unknown:
         raise ValueError(f"Unbekannte Option: {', '.join(unknown)}")
 
@@ -454,6 +533,12 @@ def validated_options_update(
 
     active = active_option_values(current)
     for key, value in updates.items():
+        if key in SOURCE_BINDING_KEY_SET:
+            if value is None:
+                current.pop(key, None)
+            else:
+                current[key] = str(value).strip()
+            continue
         spec = specs[key]
         if value in (None, "") and key.endswith(("_comfort_threshold", "_boost_threshold")):
             disabled_key = key.replace("_comfort_threshold", "_comfort_disabled").replace("_boost_threshold", "_boost_disabled")

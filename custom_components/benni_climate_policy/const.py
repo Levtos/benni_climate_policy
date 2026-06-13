@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "benni_climate_policy"
-INTEGRATION_VERSION = "0.1.4"
+INTEGRATION_VERSION = "0.1.5"
 DATA_COORDINATOR = "coordinator"
 
 CONF_APPLY_ACTIVE = "apply_active"

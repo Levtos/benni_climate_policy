@@ -62,6 +62,26 @@ def test_update_preserves_unrelated_options():
     assert updated[CONF_APPLY_ACTIVE] is True
 
 
+def test_update_options_accepts_source_binding_values():
+    updated = validated_options_update(
+        {},
+        {
+            "living_room_thermostat": "climate.eve_thermo_20ebp1701",
+            "kitchen_thermostat": "climate.eve_thermo_20ebp1701_2",
+            "bathroom_thermostat": "climate.eve_thermo_20ebp1701_3",
+        },
+    )
+
+    assert updated["living_room_thermostat"] == "climate.eve_thermo_20ebp1701"
+    assert updated["kitchen_thermostat"] == "climate.eve_thermo_20ebp1701_2"
+    assert updated["bathroom_thermostat"] == "climate.eve_thermo_20ebp1701_3"
+
+
+def test_update_options_still_rejects_unknown_keys():
+    with pytest.raises(ValueError, match="Unbekannte Option"):
+        validated_options_update({}, {"made_up_binding": "sensor.anything"})
+
+
 def test_policy_uses_persisted_matrix_values():
     key = threshold_option_key("summer", "off_threshold")
     options = validated_options_update({}, {key: 21.0})
