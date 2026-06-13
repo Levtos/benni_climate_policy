@@ -131,6 +131,23 @@ def _state_value(value: str | None) -> str | None:
     return str(value)
 
 
+def _preferred_attribute_for_key(key: str) -> str | None:
+    if key.endswith("_humidity"):
+        return "humidity"
+    return None
+
+
+def _state_or_preferred_attribute(key: str, state) -> str | None:
+    if state is None:
+        return None
+    attr = _preferred_attribute_for_key(key)
+    if attr and attr in state.attributes:
+        value = state.attributes.get(attr)
+        if value not in (None, "", "unknown", "unavailable", "none"):
+            return str(value)
+    return state.state
+
+
 def _input_role(key: str) -> str:
     if key == CONF_BATH_FAN:
         return "actuator"
@@ -343,7 +360,7 @@ class ClimatePolicyCoordinator:
     def _state(self, key: str) -> str | None:
         entity_id = self.config.get(key)
         state = self.hass.states.get(entity_id) if entity_id else None
-        return state.state if state else None
+        return _state_or_preferred_attribute(key, state)
 
     def _state_obj(self, key: str):
         entity_id = self.config.get(key)
@@ -412,6 +429,8 @@ class ClimatePolicyCoordinator:
             preset = PRESET.get(key)
             entity_id = configured or preset
             state = self.hass.states.get(entity_id) if entity_id else None
+            state_value = _state_or_preferred_attribute(key, state)
+            attr = _preferred_attribute_for_key(key)
             if configured and preset and configured == preset:
                 source = "candidate"
             elif configured:
@@ -424,8 +443,9 @@ class ClimatePolicyCoordinator:
                 "role": _input_role(key),
                 "key": key,
                 "entity_id": entity_id,
-                "state": state.state if state else None,
-                "status": _input_status(state.state if state else None),
+                "attribute": attr if state is not None and attr in state.attributes else None,
+                "state": state_value,
+                "status": _input_status(state_value),
                 "source": source,
             })
         return out

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "benni_climate_policy"
-INTEGRATION_VERSION = "0.1.3"
+INTEGRATION_VERSION = "0.1.4"
 DATA_COORDINATOR = "coordinator"
 
 CONF_APPLY_ACTIVE = "apply_active"
@@ -98,14 +98,13 @@ PRESET = {
     CONF_SUN: "sun.sun",
     CONF_SYSTEM_READY: "binary_sensor.system_climate_ready",
     CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING): "sensor.benni_device_living_climate",
-    # Core environment humidity is currently exposed as an attribute, while this
-    # integration reads source states only. Keep humidity on YAML atomics until
-    # attribute source bindings or derived Core humidity sensors exist.
-    CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING): "sensor.living_humidity_atomic",
+    # Core environment sensors expose humidity as an attribute. The coordinator
+    # reads that attribute for *_humidity keys and falls back to state otherwise.
+    CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING): "sensor.benni_device_living_climate",
     CONF_ZONE_TEMPERATURE.format(zone=ZONE_KITCHEN): "sensor.benni_device_kitchen_climate",
-    CONF_ZONE_HUMIDITY.format(zone=ZONE_KITCHEN): "sensor.kitchen_humidity_atomic",
+    CONF_ZONE_HUMIDITY.format(zone=ZONE_KITCHEN): "sensor.benni_device_kitchen_climate",
     CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM): "sensor.benni_device_bath_climate",
-    CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM): "sensor.bath_humidity_atomic",
+    CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM): "sensor.benni_device_bath_climate",
     CONF_LIVING_WINDOW_LEFT_OPEN: "sensor.benni_device_living_window_left",
     CONF_LIVING_WINDOW_LEFT_TILT: "sensor.benni_device_living_window_left",
     CONF_LIVING_WINDOW_RIGHT_OPEN: "sensor.benni_device_living_window_right",

@@ -73,6 +73,13 @@ def test_coordinator_does_not_watch_self_generated_temperature_inputs():
     assert "key != CONF_OUTDOOR_FEELS_LIKE and _is_watchable_entity_id(value)" in COORDINATOR_SOURCE
 
 
+def test_room_humidity_inputs_read_core_device_humidity_attribute():
+    assert 'if key.endswith("_humidity")' in COORDINATOR_SOURCE
+    assert 'return "humidity"' in COORDINATOR_SOURCE
+    assert "state.attributes.get(attr)" in COORDINATOR_SOURCE
+    assert '"attribute": attr if state is not None and attr in state.attributes else None' in COORDINATOR_SOURCE
+
+
 def test_debug_payload_exposes_compact_performance_diagnostics():
     assert '"performance"' in COORDINATOR_SOURCE
     assert '"last_recalculate_at"' in COORDINATOR_SOURCE
