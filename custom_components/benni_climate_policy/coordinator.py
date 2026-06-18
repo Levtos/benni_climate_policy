@@ -366,6 +366,17 @@ class ClimatePolicyCoordinator:
         entity_id = self.config.get(key)
         return self.hass.states.get(entity_id) if entity_id else None
 
+    def _bath_fan_active_since(self, now: datetime) -> datetime | None:
+        state = self._state_obj(CONF_BATH_FAN)
+        if state is None or state.state != "on":
+            return None
+        candidates = [
+            value
+            for value in (getattr(state, "last_changed", None), self.last_bath_fan_active_at)
+            if isinstance(value, datetime) and value <= now
+        ]
+        return max(candidates) if candidates else now
+
     def _is_bath_fan_usage_source(self, entity_id: str | None) -> bool:
         return entity_id in {
             self.config.get(CONF_BATH_TOILET_ACTIVITY),
@@ -916,6 +927,7 @@ class ClimatePolicyCoordinator:
             bathroom_humidity=bathroom_humidity,
             living_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING)),
             living_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING)),
+            fan_active_since=self._bath_fan_active_since(now),
             toilet_activity_active=self._state(CONF_BATH_TOILET_ACTIVITY) == "on",
             shower_activity_active=self._state(CONF_BATH_SHOWER_ACTIVITY) == "on",
             fan_usage_hold_active=self._bath_fan_usage_hold_active(now),

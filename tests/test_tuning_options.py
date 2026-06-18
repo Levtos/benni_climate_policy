@@ -3,6 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 import pytest
 
+from custom_components.benni_climate_policy.bathroom import (
+    OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET,
+)
 from custom_components.benni_climate_policy.policy import (
     OPT_FLOOR_SLAB_MIN_DELTA,
     OPT_FLOOR_SLAB_MAX_DELTA,
@@ -135,3 +139,23 @@ def test_floor_slab_delta_bounds_are_validated():
 
     with pytest.raises(ValueError):
         validated_options_update({}, {OPT_FLOOR_SLAB_MIN_DELTA: 2.0, OPT_FLOOR_SLAB_MAX_DELTA: 1.0})
+
+
+def test_bath_humidity_ground_heat_target_must_stay_below_cutoff():
+    updated = validated_options_update(
+        {},
+        {
+            OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET: 21.5,
+            OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT: 22.2,
+        },
+    )
+    assert active_option_values(updated)[OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET] == 21.5
+
+    with pytest.raises(ValueError):
+        validated_options_update(
+            {},
+            {
+                OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET: 22.5,
+                OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT: 22.0,
+            },
+        )

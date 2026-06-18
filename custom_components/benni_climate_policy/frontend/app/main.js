@@ -155,6 +155,11 @@ const TUNING_GROUPS = [
     ["bath_humidity_acute_rise_threshold", "Aktiv-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
     ["bath_dewpoint_acute_threshold", "Aktiv-Taupunkt"],
+    ["bath_humidity_ground_heat_threshold", "Grundwärme Feuchte"],
+    ["bath_dewpoint_ground_heat_threshold", "Grundwärme Taupunkt"],
+    ["bath_humidity_ground_heat_teff_limit", "Grundwärme bis Heizwert"],
+    ["bath_humidity_ground_heat_target", "Grundwärme Feuchte-Ziel"],
+    ["bath_humidity_ground_heat_off_at", "Grundwärme Feuchte aus ab"],
     ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
     ["bath_ah_delta_afterrun_off", "Nachlauf Ende AH-Delta"],
     ["bath_ah_delta_stoss", "Stoßlüftung AH-Delta"],
@@ -800,6 +805,8 @@ const UX_LABELS = {
     computed_from_raw_temperature_humidity_wind: "Aus Rohwerten berechnet",
     raw_humidity_or_wind_missing: "Rohwerte fehlen, reale Außentemperatur genutzt",
     bath_ground_heat_default: "Mindestwärme gegen Auskühlung und Feuchte",
+    bath_humidity_ground_heat: "Feuchteschutz hält die Bad-Grundwärme aktiv.",
+    bath_humidity_ground_heat_overrides_indoor_hysteresis: "Feuchteschutz überstimmt die Innen-Hysterese.",
     bath_over_target_forces_off: "Bad ist warm genug, Heizung bleibt aus.",
     bath_temperature_above_target_no_heating: "Bad über Zieltemperatur, kein Nachheizen nötig.",
     living_area_window_or_door_open_or_tilted: "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.",
@@ -983,6 +990,7 @@ function compactReason(reason, zone = "") {
   const raw = String(reason ?? "").toLowerCase();
   if (!raw || raw === "missing" || raw === "none" || raw === "unavailable") return "Keine besondere Einschränkung erkannt.";
   if (raw.includes("bath_over_target") || raw.includes("bath temperature above") || raw.includes("bath over target")) return "Bad ist warm genug, Heizung bleibt aus.";
+  if (raw.includes("bath_humidity_ground_heat")) return "Feuchteschutz hält die Bad-Grundwärme aktiv.";
   if (raw.includes("room_temperature_above") || raw.includes("no_heat_demand")) return "Raum warm genug, kein Nachheizen nötig.";
   if (raw.includes("bath_temperature_above")) return "Bad ist warm genug, Heizung bleibt aus.";
   if (raw.includes("window") || raw.includes("fenster")) return "Wohnbereich blockiert: Fenster/Tür offen oder gekippt.";
@@ -1709,6 +1717,11 @@ function renderThresholds(hass, app) {
     ["bath_humidity_acute_rise_threshold", "Aktiv-Anstieg 5 Min."],
     ["bath_humidity_end_threshold", "End-Luftfeuchte"],
     ["bath_dewpoint_acute_threshold", "Aktiv-Taupunkt"],
+    ["bath_humidity_ground_heat_threshold", "Grundwärme Feuchte"],
+    ["bath_dewpoint_ground_heat_threshold", "Grundwärme Taupunkt"],
+    ["bath_humidity_ground_heat_teff_limit", "Grundwärme bis Heizwert"],
+    ["bath_humidity_ground_heat_target", "Grundwärme Feuchte-Ziel"],
+    ["bath_humidity_ground_heat_off_at", "Grundwärme Feuchte aus ab"],
     ["bath_ah_delta_afterrun_on", "Nachlauf ab AH-Delta"],
     ["bath_ah_delta_afterrun_off", "Nachlauf Ende AH-Delta"],
     ["bath_ah_delta_stoss", "Stoßlüftung AH-Delta"],
@@ -2409,6 +2422,10 @@ class BcpApp extends HTMLElement {
         payload[key] = this._validateNumber(key, draft[key], { min: 1, integer: true });
       } else if (key.endsWith("_floor_slab_delta") || key === "floor_slab_min_delta" || key === "floor_slab_max_delta" || key.endsWith("_anchor_warm_delta") || key.endsWith("_anchor_mild_delta") || key.endsWith("_anchor_cool_delta") || key.endsWith("_anchor_cold_delta") || key.endsWith("_anchor_freezing_delta")) {
         payload[key] = this._validateNumber(key, draft[key], { min: 0, max: 5 });
+      } else if (key === "bath_humidity_ground_heat_teff_limit") {
+        payload[key] = this._validateNumber(key, draft[key], { min: -30, max: 35 });
+      } else if (key === "bath_humidity_ground_heat_target" || key === "bath_humidity_ground_heat_off_at") {
+        payload[key] = this._validateNumber(key, draft[key], { min: 5, max: 30 });
       } else if (key.endsWith("_heat_on_below") || key.endsWith("_heat_off_at") || key.includes("_anchor_")) {
         payload[key] = this._validateNumber(key, draft[key], { min: -30, max: 35 });
       } else if (key.endsWith("_threshold") || key.startsWith("setpoint_") || key.startsWith("bath_setpoint_")) {

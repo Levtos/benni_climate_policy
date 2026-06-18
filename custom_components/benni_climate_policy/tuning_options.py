@@ -10,6 +10,7 @@ from .bathroom import (
     OPT_BATH_AH_DELTA_STOSS,
     OPT_BATH_COMFORT_SUPPRESSION_TEFF,
     OPT_BATH_DEWPOINT_ACUTE_THRESHOLD,
+    OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD,
     OPT_BATH_FAN_ACUTE_MAX_MINUTES,
     OPT_BATH_FAN_AFTERRUN_MAX_MINUTES,
     OPT_BATH_FAN_HEAT_COORDINATION_DELTA,
@@ -18,6 +19,10 @@ from .bathroom import (
     OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD,
     OPT_BATH_HUMIDITY_ACUTE_THRESHOLD,
     OPT_BATH_HUMIDITY_END_THRESHOLD,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD,
     OPT_BATH_SETPOINT_COMFORT,
     OPT_BATH_SETPOINT_GROUND,
     OPT_BATH_SETPOINT_PROTECTION,
@@ -154,6 +159,11 @@ BATH_KEYS = (
     OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD,
     OPT_BATH_HUMIDITY_END_THRESHOLD,
     OPT_BATH_DEWPOINT_ACUTE_THRESHOLD,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD,
+    OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT,
     OPT_BATH_AH_DELTA_AFTERRUN_ON,
     OPT_BATH_AH_DELTA_AFTERRUN_OFF,
     OPT_BATH_AH_DELTA_STOSS,
@@ -267,6 +277,11 @@ def default_option_values() -> dict[str, float | int | bool | str]:
         OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD: bath.humidity_acute_rise_threshold,
         OPT_BATH_HUMIDITY_END_THRESHOLD: bath.humidity_end_threshold,
         OPT_BATH_DEWPOINT_ACUTE_THRESHOLD: bath.dewpoint_acute_threshold,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD: bath.humidity_ground_heat_threshold,
+        OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD: bath.dewpoint_ground_heat_threshold,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT: bath.humidity_ground_heat_teff_limit,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET: bath.humidity_ground_heat_target,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT: bath.humidity_ground_heat_off_at,
         OPT_BATH_AH_DELTA_AFTERRUN_ON: bath.ah_delta_afterrun_on,
         OPT_BATH_AH_DELTA_AFTERRUN_OFF: bath.ah_delta_afterrun_off,
         OPT_BATH_AH_DELTA_STOSS: bath.ah_delta_stoss,
@@ -324,6 +339,11 @@ def option_specs() -> dict[str, OptionSpec]:
         OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD: OptionSpec("float", defaults[OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD], 0.0, 100.0),
         OPT_BATH_HUMIDITY_END_THRESHOLD: OptionSpec("float", defaults[OPT_BATH_HUMIDITY_END_THRESHOLD], 0.0, 100.0),
         OPT_BATH_DEWPOINT_ACUTE_THRESHOLD: OptionSpec("float", defaults[OPT_BATH_DEWPOINT_ACUTE_THRESHOLD], -20.0, 40.0),
+        OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD: OptionSpec("float", defaults[OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD], 0.0, 100.0),
+        OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD: OptionSpec("float", defaults[OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD], -20.0, 40.0),
+        OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT: OptionSpec("float", defaults[OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT], -30.0, 35.0),
+        OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET: OptionSpec("float", defaults[OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET], 5.0, 30.0),
+        OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT: OptionSpec("float", defaults[OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT], 5.0, 30.0),
         OPT_BATH_AH_DELTA_AFTERRUN_ON: OptionSpec("float", defaults[OPT_BATH_AH_DELTA_AFTERRUN_ON], -10.0, 30.0),
         OPT_BATH_AH_DELTA_AFTERRUN_OFF: OptionSpec("float", defaults[OPT_BATH_AH_DELTA_AFTERRUN_OFF], -10.0, 30.0),
         OPT_BATH_AH_DELTA_STOSS: OptionSpec("float", defaults[OPT_BATH_AH_DELTA_STOSS], -10.0, 30.0),
@@ -425,6 +445,11 @@ def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float |
         OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD: bath.humidity_acute_rise_threshold,
         OPT_BATH_HUMIDITY_END_THRESHOLD: bath.humidity_end_threshold,
         OPT_BATH_DEWPOINT_ACUTE_THRESHOLD: bath.dewpoint_acute_threshold,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD: bath.humidity_ground_heat_threshold,
+        OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD: bath.dewpoint_ground_heat_threshold,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT: bath.humidity_ground_heat_teff_limit,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET: bath.humidity_ground_heat_target,
+        OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT: bath.humidity_ground_heat_off_at,
         OPT_BATH_AH_DELTA_AFTERRUN_ON: bath.ah_delta_afterrun_on,
         OPT_BATH_AH_DELTA_AFTERRUN_OFF: bath.ah_delta_afterrun_off,
         OPT_BATH_AH_DELTA_STOSS: bath.ah_delta_stoss,
@@ -513,6 +538,13 @@ def _validate_floor_slab_options(values: Mapping[str, Any]) -> None:
         raise ValueError("floor_slab_anchor_index Werte muessen absteigend sortiert bleiben")
 
 
+def _validate_bath_options(values: Mapping[str, Any]) -> None:
+    target = float(values[OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET])
+    off_at = float(values[OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT])
+    if target >= off_at:
+        raise ValueError("Bad Feuchteschutz-Ziel muss unter der Abschaltgrenze liegen")
+
+
 def validated_options_update(
     current_options: Mapping[str, Any] | None,
     updates: Mapping[str, Any] | None = None,
@@ -557,5 +589,6 @@ def validated_options_update(
     _validate_threshold_order(merged)
     _validate_indoor_heat_rules(merged)
     _validate_floor_slab_options(merged)
+    _validate_bath_options(merged)
 
     return current

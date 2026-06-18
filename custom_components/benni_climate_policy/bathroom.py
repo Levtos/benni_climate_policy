@@ -32,6 +32,11 @@ BATH_HUMIDITY_ACUTE_THRESHOLD = 75.0
 BATH_HUMIDITY_ACUTE_RISE_THRESHOLD = 15.0
 BATH_HUMIDITY_END_THRESHOLD = 60.0
 BATH_DEWPOINT_ACUTE_THRESHOLD = 17.0
+BATH_HUMIDITY_GROUND_HEAT_THRESHOLD = 68.0
+BATH_DEWPOINT_GROUND_HEAT_THRESHOLD = 15.0
+BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT = 16.0
+BATH_HUMIDITY_GROUND_HEAT_TARGET = 22.0
+BATH_HUMIDITY_GROUND_HEAT_OFF_AT = 22.5
 BATH_AH_DELTA_AFTERRUN_ON = 1.5
 BATH_AH_DELTA_AFTERRUN_OFF = 0.8
 BATH_AH_DELTA_STOSS = 0.5
@@ -52,6 +57,11 @@ OPT_BATH_HUMIDITY_ACUTE_THRESHOLD = "bath_humidity_acute_threshold"
 OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD = "bath_humidity_acute_rise_threshold"
 OPT_BATH_HUMIDITY_END_THRESHOLD = "bath_humidity_end_threshold"
 OPT_BATH_DEWPOINT_ACUTE_THRESHOLD = "bath_dewpoint_acute_threshold"
+OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD = "bath_humidity_ground_heat_threshold"
+OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD = "bath_dewpoint_ground_heat_threshold"
+OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT = "bath_humidity_ground_heat_teff_limit"
+OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET = "bath_humidity_ground_heat_target"
+OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT = "bath_humidity_ground_heat_off_at"
 OPT_BATH_AH_DELTA_AFTERRUN_ON = "bath_ah_delta_afterrun_on"
 OPT_BATH_AH_DELTA_AFTERRUN_OFF = "bath_ah_delta_afterrun_off"
 OPT_BATH_AH_DELTA_STOSS = "bath_ah_delta_stoss"
@@ -73,6 +83,11 @@ BATH_OPTION_KEYS = (
     OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD,
     OPT_BATH_HUMIDITY_END_THRESHOLD,
     OPT_BATH_DEWPOINT_ACUTE_THRESHOLD,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD,
+    OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET,
+    OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT,
     OPT_BATH_AH_DELTA_AFTERRUN_ON,
     OPT_BATH_AH_DELTA_AFTERRUN_OFF,
     OPT_BATH_AH_DELTA_STOSS,
@@ -136,6 +151,11 @@ class BathTuning:
     humidity_acute_rise_threshold: float = BATH_HUMIDITY_ACUTE_RISE_THRESHOLD
     humidity_end_threshold: float = BATH_HUMIDITY_END_THRESHOLD
     dewpoint_acute_threshold: float = BATH_DEWPOINT_ACUTE_THRESHOLD
+    humidity_ground_heat_threshold: float = BATH_HUMIDITY_GROUND_HEAT_THRESHOLD
+    dewpoint_ground_heat_threshold: float = BATH_DEWPOINT_GROUND_HEAT_THRESHOLD
+    humidity_ground_heat_teff_limit: float = BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT
+    humidity_ground_heat_target: float = BATH_HUMIDITY_GROUND_HEAT_TARGET
+    humidity_ground_heat_off_at: float = BATH_HUMIDITY_GROUND_HEAT_OFF_AT
     ah_delta_afterrun_on: float = BATH_AH_DELTA_AFTERRUN_ON
     ah_delta_afterrun_off: float = BATH_AH_DELTA_AFTERRUN_OFF
     ah_delta_stoss: float = BATH_AH_DELTA_STOSS
@@ -165,6 +185,11 @@ class BathTuning:
             "humidity_acute_rise_threshold": self.humidity_acute_rise_threshold,
             "humidity_end_threshold": self.humidity_end_threshold,
             "dewpoint_acute_threshold": self.dewpoint_acute_threshold,
+            "humidity_ground_heat_threshold": self.humidity_ground_heat_threshold,
+            "dewpoint_ground_heat_threshold": self.dewpoint_ground_heat_threshold,
+            "humidity_ground_heat_teff_limit": self.humidity_ground_heat_teff_limit,
+            "humidity_ground_heat_target": self.humidity_ground_heat_target,
+            "humidity_ground_heat_off_at": self.humidity_ground_heat_off_at,
             "ah_delta_afterrun_on": self.ah_delta_afterrun_on,
             "ah_delta_afterrun_off": self.ah_delta_afterrun_off,
             "ah_delta_stoss": self.ah_delta_stoss,
@@ -195,6 +220,11 @@ def bath_tuning_from_options(options: Mapping[str, Any] | None) -> BathTuning:
         humidity_acute_rise_threshold=_float_option(options, OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD, BATH_HUMIDITY_ACUTE_RISE_THRESHOLD, sources, min_value=0, max_value=100),
         humidity_end_threshold=_float_option(options, OPT_BATH_HUMIDITY_END_THRESHOLD, BATH_HUMIDITY_END_THRESHOLD, sources, min_value=0, max_value=100),
         dewpoint_acute_threshold=_float_option(options, OPT_BATH_DEWPOINT_ACUTE_THRESHOLD, BATH_DEWPOINT_ACUTE_THRESHOLD, sources, min_value=-20, max_value=40),
+        humidity_ground_heat_threshold=_float_option(options, OPT_BATH_HUMIDITY_GROUND_HEAT_THRESHOLD, BATH_HUMIDITY_GROUND_HEAT_THRESHOLD, sources, min_value=0, max_value=100),
+        dewpoint_ground_heat_threshold=_float_option(options, OPT_BATH_DEWPOINT_GROUND_HEAT_THRESHOLD, BATH_DEWPOINT_GROUND_HEAT_THRESHOLD, sources, min_value=-20, max_value=40),
+        humidity_ground_heat_teff_limit=_float_option(options, OPT_BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT, BATH_HUMIDITY_GROUND_HEAT_TEFF_LIMIT, sources, min_value=-30, max_value=35),
+        humidity_ground_heat_target=_float_option(options, OPT_BATH_HUMIDITY_GROUND_HEAT_TARGET, BATH_HUMIDITY_GROUND_HEAT_TARGET, sources, min_value=5, max_value=30),
+        humidity_ground_heat_off_at=_float_option(options, OPT_BATH_HUMIDITY_GROUND_HEAT_OFF_AT, BATH_HUMIDITY_GROUND_HEAT_OFF_AT, sources, min_value=5, max_value=30),
         ah_delta_afterrun_on=_float_option(options, OPT_BATH_AH_DELTA_AFTERRUN_ON, BATH_AH_DELTA_AFTERRUN_ON, sources, min_value=-10, max_value=30),
         ah_delta_afterrun_off=_float_option(options, OPT_BATH_AH_DELTA_AFTERRUN_OFF, BATH_AH_DELTA_AFTERRUN_OFF, sources, min_value=-10, max_value=30),
         ah_delta_stoss=_float_option(options, OPT_BATH_AH_DELTA_STOSS, BATH_AH_DELTA_STOSS, sources, min_value=-10, max_value=30),
@@ -221,6 +251,7 @@ class BathroomHumidityInput:
     bathroom_humidity: float | None
     living_temperature: float | None
     living_humidity: float | None
+    fan_active_since: datetime | None = None
     toilet_activity_active: bool = False
     shower_activity_active: bool = False
     fan_usage_hold_active: bool = False
@@ -257,6 +288,7 @@ class BathroomFanPlan:
                 "shower_activity_active": self.diagnostics.get("shower_activity_active"),
                 "fan_usage_hold_active": self.diagnostics.get("fan_usage_hold_active"),
                 "fan_usage_hold_until": self.diagnostics.get("fan_usage_hold_until"),
+                "fan_max_duration_reached": self.diagnostics.get("fan_max_duration_reached"),
                 "heating_fan_coordination_state": self.diagnostics.get("heating_fan_coordination_state"),
             },
         }
@@ -310,9 +342,11 @@ def humidity_diagnostics(inp: BathroomHumidityInput) -> dict[str, Any]:
         "shower_activity_active": inp.shower_activity_active,
         "fan_usage_hold_active": inp.fan_usage_hold_active,
         "fan_usage_hold_until": inp.fan_usage_hold_until.isoformat() if inp.fan_usage_hold_until else None,
+        "fan_active_since": inp.fan_active_since.isoformat() if inp.fan_active_since else None,
         "previous_bathroom_humidity": inp.previous_bathroom_humidity,
         "previous_bathroom_humidity_at": inp.previous_bathroom_humidity_at.isoformat() if inp.previous_bathroom_humidity_at else None,
         "bathroom_humidity_rise_5m": None,
+        "fan_active_duration_minutes": None,
         "dewpoint": None,
         "absolute_humidity_bathroom": None,
         "absolute_humidity_living": None,
@@ -351,6 +385,23 @@ def bath_outdoor_bonus(teff: float | None, tuning: BathTuning) -> float:
     if teff > 15:
         return tuning.bonus_teff_warm
     return 0.0
+
+
+def bath_humidity_ground_heat_active(
+    inp: BathroomClimateInput,
+    teff: float | None,
+    tuning: BathTuning,
+) -> bool:
+    if teff is None or teff > tuning.humidity_ground_heat_teff_limit:
+        return False
+    humidity = inp.room_humidity
+    if humidity is None:
+        return False
+    if humidity >= tuning.humidity_ground_heat_threshold:
+        return True
+    if inp.room_temperature is None:
+        return False
+    return dew_point_celsius(inp.room_temperature, humidity) >= tuning.dewpoint_ground_heat_threshold
 
 
 def decide_bathroom_climate(
@@ -402,11 +453,18 @@ def decide_bathroom_climate(
     heat_demand: bool | None = False if profile == "off" else None
     indoor_reason: str | None = "candidate_profile_off" if profile == "off" else None
     indoor_rule = indoor_heat_rule_for("bathroom", profile, indoor_tuning) if profile != "protection" else None
+    humidity_ground_heat = profile == "grundwaerme" and bath_humidity_ground_heat_active(inp, teff, tuning)
+    indoor_heat_off_at = indoor_rule.heat_off_at if indoor_rule else None
+    if humidity_ground_heat:
+        target = max(target, tuning.humidity_ground_heat_target)
+        reason = "bath_humidity_ground_heat"
+        path.append(reason)
+        indoor_heat_off_at = max(indoor_heat_off_at or tuning.humidity_ground_heat_off_at, tuning.humidity_ground_heat_off_at)
     if profile != "protection" and indoor_rule is not None:
         if inp.room_temperature is None:
             heat_demand = True
             indoor_reason = "room_temperature_missing_allows_candidate"
-        elif inp.room_temperature >= indoor_rule.heat_off_at:
+        elif indoor_heat_off_at is not None and inp.room_temperature >= indoor_heat_off_at:
             profile = "off"
             target = BATH_SETPOINT_OFF
             reason = no_heat_demand_reason("bathroom")
@@ -416,6 +474,9 @@ def decide_bathroom_climate(
         elif inp.room_temperature < indoor_rule.heat_on_below:
             heat_demand = True
             indoor_reason = "room_temperature_below_heat_on_below"
+        elif humidity_ground_heat:
+            heat_demand = True
+            indoor_reason = "bath_humidity_ground_heat_overrides_indoor_hysteresis"
         elif inp.last_mode == "off":
             profile = "off"
             target = BATH_SETPOINT_OFF
@@ -461,7 +522,7 @@ def decide_bathroom_climate(
         heat_demand=heat_demand,
         indoor_heat_demand_reason=indoor_reason,
         indoor_heat_on_below=indoor_rule.heat_on_below if indoor_rule else None,
-        indoor_heat_off_at=indoor_rule.heat_off_at if indoor_rule else None,
+        indoor_heat_off_at=indoor_heat_off_at,
         indoor_min_hold_minutes=indoor_rule.min_hold_minutes if indoor_rule else None,
         last_calculated=now.isoformat(),
         apply_block_reason=", ".join(blockers) if blockers else "none",
@@ -479,6 +540,11 @@ def decide_bathroom_fan(
     tuning: BathTuning,
 ) -> BathroomFanPlan:
     diagnostics = humidity_diagnostics(humidity_input)
+    fan_active_duration_minutes = (
+        round(max(0.0, (now - humidity_input.fan_active_since).total_seconds() / 60), 2)
+        if humidity_input.fan_active_since is not None
+        else None
+    )
     humidity = humidity_input.bathroom_humidity
     dewpoint = diagnostics["dewpoint"]
     ah_delta = diagnostics["ah_delta"]
@@ -494,6 +560,7 @@ def decide_bathroom_fan(
     toilet_activity = humidity_input.toilet_activity_active
     shower_activity = humidity_input.shower_activity_active
     usage_hold = humidity_input.fan_usage_hold_active or toilet_activity or shower_activity
+    usage_hold_protected = humidity_input.fan_usage_hold_active or toilet_activity
 
     acute = (
         (humidity_rise_recent and humidity_rise > tuning.humidity_acute_rise_threshold)
@@ -531,6 +598,23 @@ def decide_bathroom_fan(
     elif day_state in ("early_night", "late_night"):
         reason = "bath_fan_stoss_blocked_by_night"
 
+    uncapped_mode = mode
+    uncapped_reason = reason
+    max_duration_minutes = {
+        "akut": tuning.fan_acute_max_minutes,
+        "nachluft": tuning.fan_afterrun_max_minutes,
+        "stoss": tuning.fan_stoss_duration_minutes,
+    }.get(mode)
+    max_duration_reached = (
+        max_duration_minutes is not None
+        and fan_active_duration_minutes is not None
+        and fan_active_duration_minutes >= max_duration_minutes
+        and not usage_hold_protected
+    )
+    if max_duration_reached:
+        mode = "off"
+        reason = f"bath_fan_{uncapped_mode}_max_duration_reached"
+
     strongly_heating = (
         humidity_input.bathroom_temperature is not None
         and humidity_input.bathroom_temperature < heating_plan.target_temperature - tuning.fan_heat_coordination_delta
@@ -540,7 +624,9 @@ def decide_bathroom_fan(
         mode = "off"
         reason = "bath_fan_blocked_by_heating_coordination"
     coordination = (
-        "shower_activity_overrides_heating"
+        "max_duration_reached"
+        if max_duration_reached
+        else "shower_activity_overrides_heating"
         if shower_activity
         else "acute_overrides_heating"
         if acute
@@ -554,6 +640,11 @@ def decide_bathroom_fan(
     diagnostics.update({
         "heating_fan_coordination_state": coordination,
         "strongly_heating": strongly_heating,
+        "fan_active_duration_minutes": fan_active_duration_minutes,
+        "fan_active_since": humidity_input.fan_active_since.isoformat() if humidity_input.fan_active_since else None,
+        "fan_max_duration_reached": max_duration_reached,
+        "fan_uncapped_mode": uncapped_mode,
+        "fan_uncapped_reason": uncapped_reason,
         "max_duration_minutes": {
             "akut": tuning.fan_acute_max_minutes,
             "nachluft": tuning.fan_afterrun_max_minutes,
