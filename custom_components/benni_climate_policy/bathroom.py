@@ -252,6 +252,7 @@ class BathroomHumidityInput:
     living_temperature: float | None
     living_humidity: float | None
     fan_active_since: datetime | None = None
+    fan_active_since_uncertain: bool = False
     toilet_activity_active: bool = False
     shower_activity_active: bool = False
     fan_usage_hold_active: bool = False
@@ -343,6 +344,7 @@ def humidity_diagnostics(inp: BathroomHumidityInput) -> dict[str, Any]:
         "fan_usage_hold_active": inp.fan_usage_hold_active,
         "fan_usage_hold_until": inp.fan_usage_hold_until.isoformat() if inp.fan_usage_hold_until else None,
         "fan_active_since": inp.fan_active_since.isoformat() if inp.fan_active_since else None,
+        "fan_active_since_uncertain": inp.fan_active_since_uncertain,
         "previous_bathroom_humidity": inp.previous_bathroom_humidity,
         "previous_bathroom_humidity_at": inp.previous_bathroom_humidity_at.isoformat() if inp.previous_bathroom_humidity_at else None,
         "bathroom_humidity_rise_5m": None,
@@ -571,12 +573,12 @@ def decide_bathroom_fan(
     if shower_activity:
         mode = "akut"
         reason = "bath_fan_shower_activity_hold"
-    elif acute:
-        mode = "akut"
-        reason = "bath_fan_acute_humidity_rise_or_threshold"
     elif usage_hold:
         mode = "stoss"
         reason = "bath_fan_usage_hold"
+    elif acute:
+        mode = "akut"
+        reason = "bath_fan_acute_humidity_rise_or_threshold"
     elif ah_delta is None:
         reason = "bath_fan_missing_humidity_delta"
         blockers.append("humidity_delta_missing")
@@ -605,15 +607,25 @@ def decide_bathroom_fan(
         "nachluft": tuning.fan_afterrun_max_minutes,
         "stoss": tuning.fan_stoss_duration_minutes,
     }.get(mode)
-    max_duration_reached = (
+    known_duration_reached = (
         max_duration_minutes is not None
         and fan_active_duration_minutes is not None
         and fan_active_duration_minutes >= max_duration_minutes
+    )
+    unknown_startup_duration_reached = (
+        max_duration_minutes is not None
+        and humidity_input.fan_active_since_uncertain
+    )
+    max_duration_reached = (
+        (known_duration_reached or unknown_startup_duration_reached)
         and not usage_hold_protected
     )
     if max_duration_reached:
         mode = "off"
-        reason = f"bath_fan_{uncapped_mode}_max_duration_reached"
+        if humidity_input.fan_active_since_uncertain:
+            reason = f"bath_fan_{uncapped_mode}_active_since_unknown_at_startup"
+        else:
+            reason = f"bath_fan_{uncapped_mode}_max_duration_reached"
 
     strongly_heating = (
         humidity_input.bathroom_temperature is not None
@@ -642,6 +654,7 @@ def decide_bathroom_fan(
         "strongly_heating": strongly_heating,
         "fan_active_duration_minutes": fan_active_duration_minutes,
         "fan_active_since": humidity_input.fan_active_since.isoformat() if humidity_input.fan_active_since else None,
+        "fan_active_since_uncertain": humidity_input.fan_active_since_uncertain,
         "fan_max_duration_reached": max_duration_reached,
         "fan_uncapped_mode": uncapped_mode,
         "fan_uncapped_reason": uncapped_reason,

@@ -335,8 +335,14 @@ class ClimatePolicyCoordinator:
     def _on_state_change(self, event: Event) -> None:
         entity_id = event.data.get("entity_id", "unknown")
         new_state = event.data.get("new_state")
+        now = dt_util.now()
+        if entity_id == self.config.get(CONF_BATH_FAN):
+            if getattr(new_state, "state", None) == "on":
+                self.last_bath_fan_active_at = now
+            elif getattr(new_state, "state", None) == "off":
+                self.last_bath_fan_active_at = None
         if self._is_bath_fan_usage_source(entity_id) and getattr(new_state, "state", None) == "on":
-            self._extend_bath_fan_usage_hold(dt_util.now())
+            self._extend_bath_fan_usage_hold(now)
         self._schedule_evaluate(auto_apply=True, reason=f"state_change:{entity_id}")
 
     @callback
@@ -376,6 +382,12 @@ class ClimatePolicyCoordinator:
             if isinstance(value, datetime) and value <= now
         ]
         return max(candidates) if candidates else now
+
+    def _bath_fan_active_since_uncertain(self) -> bool:
+        state = self._state_obj(CONF_BATH_FAN)
+        if state is None or state.state != "on":
+            return False
+        return self.last_bath_fan_active_at is None
 
     def _is_bath_fan_usage_source(self, entity_id: str | None) -> bool:
         return entity_id in {
@@ -928,6 +940,7 @@ class ClimatePolicyCoordinator:
             living_temperature=self._float_state(CONF_ZONE_TEMPERATURE.format(zone=ZONE_LIVING)),
             living_humidity=self._float_state(CONF_ZONE_HUMIDITY.format(zone=ZONE_LIVING)),
             fan_active_since=self._bath_fan_active_since(now),
+            fan_active_since_uncertain=self._bath_fan_active_since_uncertain(),
             toilet_activity_active=self._state(CONF_BATH_TOILET_ACTIVITY) == "on",
             shower_activity_active=self._state(CONF_BATH_SHOWER_ACTIVITY) == "on",
             fan_usage_hold_active=self._bath_fan_usage_hold_active(now),
