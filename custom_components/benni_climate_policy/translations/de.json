@@ -49,6 +49,7 @@
           "bathroom_humidity": "Bad Luftfeuchte",
           "bathroom_thermostat": "Bad Thermostat",
           "bath_fan": "Badluefter",
+          "bath_diffuser": "Bad Diffuser",
           "bath_toilet_activity": "Bad Toilettenaktivitaet",
           "bath_shower_activity": "Bad Duschaktivitaet"
         }
@@ -148,6 +149,7 @@
           "bathroom_humidity": "Bad Luftfeuchte",
           "bathroom_thermostat": "Bad Thermostat",
           "bath_fan": "Badluefter",
+          "bath_diffuser": "Bad Diffuser",
           "bath_toilet_activity": "Bad Toilettenaktivitaet",
           "bath_shower_activity": "Bad Duschaktivitaet"
         }
@@ -270,7 +272,10 @@
           "bath_fan_acute_max_minutes": "Akut maximale Laufzeit",
           "bath_fan_afterrun_max_minutes": "Nachlauf maximale Laufzeit",
           "bath_fan_stoss_interval_hours": "Stosslueftung Mindestintervall",
-          "bath_fan_stoss_duration_minutes": "Stosslueftung Dauer"
+          "bath_fan_stoss_duration_minutes": "Stosslueftung Dauer",
+          "bath_fan_hard_cap_minutes": "Harte Laufzeitgrenze (gegen 24/7)",
+          "bath_fan_cooldown_minutes": "Cooldown-Sperre nach harter Grenze",
+          "bath_diffuser_max_minutes": "Diffuser maximale Laufzeit"
         }
       },
       "tuning_thresholds": {

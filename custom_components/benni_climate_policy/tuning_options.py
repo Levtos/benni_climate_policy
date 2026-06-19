@@ -16,6 +16,9 @@ from .bathroom import (
     OPT_BATH_FAN_HEAT_COORDINATION_DELTA,
     OPT_BATH_FAN_STOSS_DURATION_MINUTES,
     OPT_BATH_FAN_STOSS_INTERVAL_HOURS,
+    OPT_BATH_FAN_HARD_CAP_MINUTES,
+    OPT_BATH_FAN_COOLDOWN_MINUTES,
+    OPT_BATH_DIFFUSER_MAX_MINUTES,
     OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD,
     OPT_BATH_HUMIDITY_ACUTE_THRESHOLD,
     OPT_BATH_HUMIDITY_END_THRESHOLD,
@@ -30,6 +33,7 @@ from .bathroom import (
 )
 from .const import (
     CONF_APPLY_COOLDOWN_SECONDS,
+    CONF_BATH_DIFFUSER,
     CONF_BATH_FAN,
     CONF_BATH_SHOWER_ACTIVITY,
     CONF_BATH_TOILET_ACTIVITY,
@@ -172,6 +176,9 @@ BATH_KEYS = (
     OPT_BATH_FAN_AFTERRUN_MAX_MINUTES,
     OPT_BATH_FAN_STOSS_INTERVAL_HOURS,
     OPT_BATH_FAN_STOSS_DURATION_MINUTES,
+    OPT_BATH_FAN_HARD_CAP_MINUTES,
+    OPT_BATH_FAN_COOLDOWN_MINUTES,
+    OPT_BATH_DIFFUSER_MAX_MINUTES,
 )
 THRESHOLD_KEYS = tuple(
     threshold_option_key(band, field)
@@ -234,6 +241,7 @@ SOURCE_BINDING_KEYS = (
     CONF_KITCHEN_PATIO_OPEN,
     CONF_KITCHEN_PATIO_TILT,
     CONF_BATH_FAN,
+    CONF_BATH_DIFFUSER,
     CONF_BATH_TOILET_ACTIVITY,
     CONF_BATH_SHOWER_ACTIVITY,
 )
@@ -290,6 +298,9 @@ def default_option_values() -> dict[str, float | int | bool | str]:
         OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: bath.fan_afterrun_max_minutes,
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: bath.fan_stoss_interval_hours,
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: bath.fan_stoss_duration_minutes,
+        OPT_BATH_FAN_HARD_CAP_MINUTES: bath.fan_hard_cap_minutes,
+        OPT_BATH_FAN_COOLDOWN_MINUTES: bath.fan_cooldown_minutes,
+        OPT_BATH_DIFFUSER_MAX_MINUTES: bath.diffuser_max_minutes,
     }
     for group, profiles in DEFAULT_INDOOR_HEAT_RULES.items():
         for profile, defaults in profiles.items():
@@ -352,6 +363,9 @@ def option_specs() -> dict[str, OptionSpec]:
         OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: OptionSpec("int", defaults[OPT_BATH_FAN_AFTERRUN_MAX_MINUTES], 1, None),
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: OptionSpec("int", defaults[OPT_BATH_FAN_STOSS_INTERVAL_HOURS], 1, None),
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: OptionSpec("int", defaults[OPT_BATH_FAN_STOSS_DURATION_MINUTES], 1, None),
+        OPT_BATH_FAN_HARD_CAP_MINUTES: OptionSpec("int", defaults[OPT_BATH_FAN_HARD_CAP_MINUTES], 1, None),
+        OPT_BATH_FAN_COOLDOWN_MINUTES: OptionSpec("int", defaults[OPT_BATH_FAN_COOLDOWN_MINUTES], 1, None),
+        OPT_BATH_DIFFUSER_MAX_MINUTES: OptionSpec("int", defaults[OPT_BATH_DIFFUSER_MAX_MINUTES], 1, None),
     })
     for key in (*INDOOR_LIVING_KEYS, *INDOOR_BATHROOM_KEYS):
         if key.endswith("_min_hold_minutes"):
@@ -458,6 +472,9 @@ def active_option_values(options: Mapping[str, Any] | None) -> dict[str, float |
         OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: bath.fan_afterrun_max_minutes,
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: bath.fan_stoss_interval_hours,
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: bath.fan_stoss_duration_minutes,
+        OPT_BATH_FAN_HARD_CAP_MINUTES: bath.fan_hard_cap_minutes,
+        OPT_BATH_FAN_COOLDOWN_MINUTES: bath.fan_cooldown_minutes,
+        OPT_BATH_DIFFUSER_MAX_MINUTES: bath.diffuser_max_minutes,
     })
     for group, profiles in policy.indoor_heat_rules.items():
         for profile, rule in profiles.items():

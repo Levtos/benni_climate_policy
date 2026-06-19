@@ -168,6 +168,9 @@ const TUNING_GROUPS = [
     ["bath_fan_afterrun_max_minutes", "Nachlauf max. Minuten"],
     ["bath_fan_stoss_interval_hours", "Stoßlüftung Intervall"],
     ["bath_fan_stoss_duration_minutes", "Stoßlüftung Dauer"],
+    ["bath_fan_hard_cap_minutes", "Harte Laufzeitgrenze (gegen 24/7)"],
+    ["bath_fan_cooldown_minutes", "Cooldown-Sperre nach Grenze"],
+    ["bath_diffuser_max_minutes", "Diffuser max. Minuten"],
   ]],
 ];
 
@@ -2405,6 +2408,9 @@ class BcpApp extends HTMLElement {
       "bath_fan_afterrun_max_minutes",
       "bath_fan_stoss_interval_hours",
       "bath_fan_stoss_duration_minutes",
+      "bath_fan_hard_cap_minutes",
+      "bath_fan_cooldown_minutes",
+      "bath_diffuser_max_minutes",
     ]);
     const weightKeys = new Set(["feels_like_damping", "forecast_weight"]);
     dirty.forEach((key) => {

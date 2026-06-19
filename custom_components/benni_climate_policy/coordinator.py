@@ -17,6 +17,7 @@ from .apply_engine import ApplyEngine, ApplyGateState
 from .const import (
     CONF_APPLY_ACTIVE,
     CONF_APPLY_COOLDOWN_SECONDS,
+    CONF_BATH_DIFFUSER,
     CONF_BATH_FAN,
     CONF_BATH_SHOWER_ACTIVITY,
     CONF_BATH_TOILET_ACTIVITY,
@@ -55,10 +56,12 @@ from .const import (
 )
 from .bathroom import (
     BathroomClimateInput,
+    BathroomDiffuserPlan,
     BathroomFanPlan,
     BathroomHumidityInput,
     bath_tuning_from_options,
     decide_bathroom_climate,
+    decide_bathroom_diffuser,
     decide_bathroom_fan,
 )
 from .context_resolver import ContextResolver
@@ -245,16 +248,20 @@ class ClimatePolicyCoordinator:
         self.decision: ClimateDecision | None = None
         self.weather_resolution: WeatherResolution | None = None
         self.bathroom_fan_plan: BathroomFanPlan | None = None
+        self.bathroom_diffuser_plan: BathroomDiffuserPlan | None = None
         self.last_apply_result: ApplyResult | None = None
         self.last_recalculate_at: datetime | None = None
         self.recalculate_count = 0
         self.last_recalculate_reason = "never"
         self.entity_publish_skipped_count = 0
         self.entity_publish_changed_count = 0
-        apply_zones = (*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan")
+        apply_zones = (*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan", "bathroom_diffuser")
         self.last_applied_hash: dict[str, str | None] = {zone: None for zone in apply_zones}
         self.last_apply_at: dict[str, datetime | None] = {zone: None for zone in apply_zones}
         self.last_bath_fan_active_at: datetime | None = None
+        self._bath_fan_cap_deadline: datetime | None = None
+        self._bath_fan_cooldown_until: datetime | None = None
+        self._diffuser_run_started_at: datetime | None = None
         self._last_good_numeric: dict[str, tuple[float, datetime]] = {}
         self._numeric_fallback_keys: set[str] = set()
         self._zone_profile_state: dict[str, str | None] = {zone: None for zone in (*HEATING_ZONES, ZONE_BATHROOM)}
@@ -615,6 +622,11 @@ class ClimatePolicyCoordinator:
             ZONE_KITCHEN: self._zone_input(ZONE_KITCHEN),
         }
         bathroom_input = self._bathroom_climate_input()
+        fan_drying_active = bool(
+            self.bathroom_fan_plan.diagnostics.get("drying_recommended")
+            if self.bathroom_fan_plan
+            else False
+        )
         bathroom_plan = decide_bathroom_climate(
             bathroom_input,
             context,
@@ -623,6 +635,7 @@ class ClimatePolicyCoordinator:
             bath_tuning,
             indoor_tuning=tuning,
             floor_slab_delta=self.floor_slab_delta,
+            fan_drying_active=fan_drying_active,
         )
         bathroom_plan = self._apply_floor_slab_context(bathroom_plan, bathroom_input, self.floor_slab_delta)
         plans = {
@@ -642,6 +655,15 @@ class ClimatePolicyCoordinator:
             last_fan_active_at=self.last_bath_fan_active_at,
             tuning=bath_tuning,
         )
+        self._bath_fan_cap_deadline = self.bathroom_fan_plan.cap_deadline
+        self._bath_fan_cooldown_until = self.bathroom_fan_plan.cooldown_until
+        self.bathroom_diffuser_plan = decide_bathroom_diffuser(
+            self.bathroom_fan_plan,
+            run_started_at=self._diffuser_run_started_at,
+            now=now,
+            tuning=bath_tuning,
+        )
+        self._diffuser_run_started_at = self.bathroom_diffuser_plan.run_started_at
         self._last_day_state = _state_value(context.day_state.value)
         self.decision = ClimateDecision(context, effective, plans, now, self.system_ready)
         self.last_evaluate_duration_ms = round((time.perf_counter() - evaluate_started) * 1000, 2)
@@ -983,6 +1005,8 @@ class ClimatePolicyCoordinator:
             fan_usage_hold_until=self._bath_fan_usage_hold_until,
             previous_bathroom_humidity=previous[0] if previous else None,
             previous_bathroom_humidity_at=previous[1] if previous else None,
+            cap_deadline=self._bath_fan_cap_deadline,
+            cooldown_until=self._bath_fan_cooldown_until,
         )
 
     async def async_set_apply_active(self, value: bool) -> None:
@@ -1020,16 +1044,20 @@ class ClimatePolicyCoordinator:
             self._notify()
             return self.last_apply_result
 
-        selected = [zone] if zone else [*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan"]
+        selected = [zone] if zone else [*HEATING_ZONES, ZONE_BATHROOM, "bathroom_fan", "bathroom_diffuser"]
         now = dt_util.now()
         apply_specs = []
         switch_specs = []
         for zone_id in selected:
-            if zone_id == "bathroom_fan":
-                plan = self.bathroom_fan_plan
+            if zone_id in ("bathroom_fan", "bathroom_diffuser"):
+                if zone_id == "bathroom_fan":
+                    plan = self.bathroom_fan_plan
+                    target = self.config.get(CONF_BATH_FAN)
+                else:
+                    plan = self.bathroom_diffuser_plan
+                    target = self.config.get(CONF_BATH_DIFFUSER)
                 if plan is None:
                     continue
-                target = self.config.get(CONF_BATH_FAN)
                 target_state = self.hass.states.get(target).state if target and self.hass.states.get(target) else None
                 gate = ApplyGateState(
                     apply_active=self.apply_active,
@@ -1097,6 +1125,14 @@ class ClimatePolicyCoordinator:
                             apply_block_reason=action.reason,
                         )
                     plan = self.bathroom_fan_plan
+                elif action.zone == "bathroom_diffuser":
+                    if self.bathroom_diffuser_plan:
+                        self.bathroom_diffuser_plan = replace(
+                            self.bathroom_diffuser_plan,
+                            apply_status=action.status,
+                            apply_block_reason=action.reason,
+                        )
+                    plan = self.bathroom_diffuser_plan
                 else:
                     plan = decision.zone(action.zone)
                     if plan:
@@ -1108,6 +1144,8 @@ class ClimatePolicyCoordinator:
                     if action.zone == "bathroom_fan":
                         if self.bathroom_fan_plan and self.bathroom_fan_plan.target_switch_state == "on":
                             self.last_bath_fan_active_at = now
+                    elif action.zone == "bathroom_diffuser":
+                        pass
                     elif plan:
                         plan.last_applied = now.isoformat()
         self.last_apply_result = result
@@ -1122,6 +1160,7 @@ class ClimatePolicyCoordinator:
         return {
             "climate_plan": self.zone_plan(ZONE_BATHROOM).as_dict() if self.zone_plan(ZONE_BATHROOM) else None,
             "fan_plan": self.bathroom_fan_plan.as_dict() if self.bathroom_fan_plan else None,
+            "diffuser_plan": self.bathroom_diffuser_plan.as_dict() if self.bathroom_diffuser_plan else None,
             "tuning": self.bath_tuning.as_dict(),
         }
 

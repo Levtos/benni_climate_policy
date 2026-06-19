@@ -12,6 +12,7 @@ from custom_components.benni_climate_policy.bathroom import (
     bath_outdoor_bonus,
     bath_tuning_from_options,
     decide_bathroom_climate,
+    decide_bathroom_diffuser,
     decide_bathroom_fan,
     dew_point_celsius,
     humidity_diagnostics,
@@ -547,3 +548,177 @@ def test_bathroom_fan_unknown_startup_runtime_does_not_stop_usage_hold():
     assert fan.mode == "stoss"
     assert fan.reason == "bath_fan_usage_hold"
     assert fan.diagnostics["fan_max_duration_reached"] is False
+
+
+def _heating(now):
+    return decide_bathroom_climate(climate_input(temp=22), ctx(), eff(10), now, bath_tuning_from_options({}))
+
+
+def test_bathroom_fan_acute_blocked_when_venting_unhelpful():
+    # Bathroom air is drier (absolute) than the living air the fan would pull in,
+    # so venting is counterproductive even though relative humidity is high.
+    now = datetime(2026, 6, 19, 22)
+    tuning = bath_tuning_from_options({})
+    fan = decide_bathroom_fan(
+        BathroomHumidityInput(20, 80, 24, 85),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan.diagnostics["ah_delta"] < 0
+    assert fan.mode == "off"
+    assert fan.target_switch_state == "off"
+    assert fan.reason == "bath_fan_acute_venting_unhelpful"
+    assert fan.diagnostics["drying_recommended"] is True
+
+
+def test_bathroom_fan_hard_cap_reached_enters_cooldown():
+    now = datetime(2026, 6, 19, 12)
+    tuning = bath_tuning_from_options({})
+    fan = decide_bathroom_fan(
+        BathroomHumidityInput(24, 80, 21, 45, cap_deadline=now - timedelta(minutes=1)),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan.diagnostics["ah_delta"] > 0
+    assert fan.mode == "off"
+    assert fan.reason == "bath_fan_hard_cap_reached"
+    assert fan.diagnostics["hard_cap_state"] == "hard_cap_reached"
+    assert fan.cap_deadline is None
+    assert fan.cooldown_until == now + timedelta(minutes=tuning.fan_cooldown_minutes)
+
+
+def test_bathroom_fan_within_budget_keeps_running_and_holds_deadline():
+    now = datetime(2026, 6, 19, 12)
+    deadline = now + timedelta(minutes=30)
+    tuning = bath_tuning_from_options({})
+    fan = decide_bathroom_fan(
+        BathroomHumidityInput(24, 80, 21, 45, cap_deadline=deadline),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan.mode == "akut"
+    assert fan.cap_deadline == deadline
+    assert fan.cooldown_until is None
+    assert fan.diagnostics["hard_cap_state"] == "within_budget"
+
+
+def test_bathroom_fan_cooldown_lockout_blocks_humidity_run():
+    now = datetime(2026, 6, 19, 12)
+    cooldown = now + timedelta(minutes=60)
+    tuning = bath_tuning_from_options({})
+    fan = decide_bathroom_fan(
+        BathroomHumidityInput(24, 80, 21, 45, cooldown_until=cooldown),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan.mode == "off"
+    assert fan.reason == "bath_fan_cooldown_lockout"
+    assert fan.cooldown_until == cooldown
+    assert fan.diagnostics["drying_recommended"] is True
+
+
+def test_bathroom_fan_event_refills_budget_and_clears_cooldown():
+    now = datetime(2026, 6, 19, 12)
+    tuning = bath_tuning_from_options({})
+    fan = decide_bathroom_fan(
+        BathroomHumidityInput(
+            24,
+            80,
+            21,
+            45,
+            shower_activity_active=True,
+            cooldown_until=now + timedelta(minutes=60),
+        ),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan.target_switch_state == "on"
+    assert fan.cooldown_until is None
+    assert fan.cap_deadline == now + timedelta(minutes=tuning.fan_hard_cap_minutes)
+    assert fan.diagnostics["hard_cap_state"] == "event_refill"
+
+
+def test_bathroom_cooldown_drying_heat_engages_when_cool():
+    now = datetime(2026, 6, 19, 12)
+    tuning = bath_tuning_from_options({})
+    plan = decide_bathroom_climate(
+        climate_input(temp=18.5, humidity=50.0),
+        ctx(),
+        eff(12),
+        now,
+        tuning,
+        fan_drying_active=True,
+    )
+    assert plan.profile == "grundwaerme"
+    assert plan.target_temperature == 22.0
+    assert plan.reason == "bath_cooldown_drying_heat"
+
+    # Without the drying signal low humidity stays on plain ground heat.
+    baseline = decide_bathroom_climate(
+        climate_input(temp=18.5, humidity=50.0),
+        ctx(),
+        eff(12),
+        now,
+        tuning,
+    )
+    assert baseline.reason == "bath_ground_heat_default"
+    assert baseline.target_temperature == 19.0
+
+
+def test_bathroom_diffuser_follows_fan_then_caps_then_off():
+    now = datetime(2026, 6, 19, 12)
+    tuning = bath_tuning_from_options({})
+    fan_on = decide_bathroom_fan(
+        humidity_input(bath_humidity=80),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan_on.target_switch_state == "on"
+
+    start = decide_bathroom_diffuser(fan_on, run_started_at=None, now=now, tuning=tuning)
+    assert start.target_switch_state == "on"
+    assert start.reason == "bath_diffuser_follows_fan"
+    assert start.run_started_at == now
+
+    capped = decide_bathroom_diffuser(
+        fan_on,
+        run_started_at=now - timedelta(minutes=tuning.diffuser_max_minutes + 1),
+        now=now,
+        tuning=tuning,
+    )
+    assert capped.target_switch_state == "off"
+    assert capped.reason == "bath_diffuser_max_duration_reached"
+    # Keeps the window so it does not restart while the fan keeps running.
+    assert capped.run_started_at is not None
+
+    fan_off = decide_bathroom_fan(
+        humidity_input(bath_temp=21, bath_humidity=45, living_temp=21, living_humidity=45),
+        _heating(now),
+        now=now,
+        day_state="afternoon",
+        last_fan_active_at=now,
+        tuning=tuning,
+    )
+    assert fan_off.target_switch_state == "off"
+    off = decide_bathroom_diffuser(fan_off, run_started_at=start.run_started_at, now=now, tuning=tuning)
+    assert off.target_switch_state == "off"
+    assert off.reason == "bath_diffuser_fan_off"
+    assert off.run_started_at is None

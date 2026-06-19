@@ -98,6 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities.extend([
         BathroomFanModeSensor(coord),
         BathroomFanPlanHashSensor(coord),
+        BathroomDiffuserModeSensor(coord),
     ])
     async_add_entities(entities)
 
@@ -369,4 +370,40 @@ class BathroomFanPlanHashSensor(BathroomFanSensorBase):
     @property
     def native_value(self):
         return self.plan.plan_hash if self.plan else "unknown"
+
+
+def _compact_diffuser_plan(plan) -> dict[str, Any]:
+    diagnostics = plan.diagnostics or {}
+    return {
+        "zone": plan.zone,
+        "mode": plan.mode,
+        "reason": plan.reason,
+        "target_switch_state": plan.target_switch_state,
+        "apply_status": plan.apply_status,
+        "apply_block_reason": plan.apply_block_reason,
+        "apply_blocked": plan.apply_blocked,
+        "blocked_by": list(plan.blocked_by),
+        "fan_target_state": diagnostics.get("fan_target_state"),
+        "run_duration_minutes": diagnostics.get("run_duration_minutes"),
+        "max_duration_minutes": diagnostics.get("max_duration_minutes"),
+        "policy_config_hash": plan.policy_config_hash,
+        "plan_hash": plan.plan_hash,
+    }
+
+
+class BathroomDiffuserModeSensor(ClimatePolicyEntity, SensorEntity):
+    def __init__(self, coord: ClimatePolicyCoordinator) -> None:
+        super().__init__(coord, "Bathroom Diffuser Mode", "bathroom_diffuser_mode")
+
+    @property
+    def plan(self):
+        return self.coord.bathroom_diffuser_plan
+
+    @property
+    def native_value(self):
+        return self.plan.mode if self.plan else "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return _compact_diffuser_plan(self.plan) if self.plan else {}
 

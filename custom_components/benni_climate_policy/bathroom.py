@@ -45,6 +45,15 @@ BATH_FAN_ACUTE_MAX_MINUTES = 45
 BATH_FAN_AFTERRUN_MAX_MINUTES = 60
 BATH_FAN_STOSS_INTERVAL_HOURS = 12
 BATH_FAN_STOSS_DURATION_MINUTES = 10
+# Hard rolling cap against 24/7 operation: the fan may run on humidity grounds for
+# at most this long per run-window. Each genuine usage event (shower/toilet/usage
+# hold) refills the window. Once exhausted without a fresh event the fan enters a
+# cooldown lockout so it cannot immediately re-arm on persistent humidity.
+BATH_FAN_HARD_CAP_MINUTES = 120
+BATH_FAN_COOLDOWN_MINUTES = 120
+# The aroma diffuser starts together with the fan but must end earlier (its own
+# shorter cap), so the two start synchronously and end asynchronously.
+BATH_DIFFUSER_MAX_MINUTES = 30
 
 OPT_BATH_SETPOINT_PROTECTION = "bath_setpoint_protection"
 OPT_BATH_SETPOINT_GROUND = "bath_setpoint_ground"
@@ -70,6 +79,9 @@ OPT_BATH_FAN_ACUTE_MAX_MINUTES = "bath_fan_acute_max_minutes"
 OPT_BATH_FAN_AFTERRUN_MAX_MINUTES = "bath_fan_afterrun_max_minutes"
 OPT_BATH_FAN_STOSS_INTERVAL_HOURS = "bath_fan_stoss_interval_hours"
 OPT_BATH_FAN_STOSS_DURATION_MINUTES = "bath_fan_stoss_duration_minutes"
+OPT_BATH_FAN_HARD_CAP_MINUTES = "bath_fan_hard_cap_minutes"
+OPT_BATH_FAN_COOLDOWN_MINUTES = "bath_fan_cooldown_minutes"
+OPT_BATH_DIFFUSER_MAX_MINUTES = "bath_diffuser_max_minutes"
 
 BATH_OPTION_KEYS = (
     OPT_BATH_SETPOINT_PROTECTION,
@@ -96,6 +108,9 @@ BATH_OPTION_KEYS = (
     OPT_BATH_FAN_AFTERRUN_MAX_MINUTES,
     OPT_BATH_FAN_STOSS_INTERVAL_HOURS,
     OPT_BATH_FAN_STOSS_DURATION_MINUTES,
+    OPT_BATH_FAN_HARD_CAP_MINUTES,
+    OPT_BATH_FAN_COOLDOWN_MINUTES,
+    OPT_BATH_DIFFUSER_MAX_MINUTES,
 )
 
 
@@ -164,6 +179,9 @@ class BathTuning:
     fan_afterrun_max_minutes: int = BATH_FAN_AFTERRUN_MAX_MINUTES
     fan_stoss_interval_hours: int = BATH_FAN_STOSS_INTERVAL_HOURS
     fan_stoss_duration_minutes: int = BATH_FAN_STOSS_DURATION_MINUTES
+    fan_hard_cap_minutes: int = BATH_FAN_HARD_CAP_MINUTES
+    fan_cooldown_minutes: int = BATH_FAN_COOLDOWN_MINUTES
+    diffuser_max_minutes: int = BATH_DIFFUSER_MAX_MINUTES
     sources: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -198,6 +216,9 @@ class BathTuning:
             "fan_afterrun_max_minutes": self.fan_afterrun_max_minutes,
             "fan_stoss_interval_hours": self.fan_stoss_interval_hours,
             "fan_stoss_duration_minutes": self.fan_stoss_duration_minutes,
+            "fan_hard_cap_minutes": self.fan_hard_cap_minutes,
+            "fan_cooldown_minutes": self.fan_cooldown_minutes,
+            "diffuser_max_minutes": self.diffuser_max_minutes,
         }
         if include_sources:
             data["signature"] = self.signature
@@ -233,6 +254,9 @@ def bath_tuning_from_options(options: Mapping[str, Any] | None) -> BathTuning:
         fan_afterrun_max_minutes=_int_option(options, OPT_BATH_FAN_AFTERRUN_MAX_MINUTES, BATH_FAN_AFTERRUN_MAX_MINUTES, sources),
         fan_stoss_interval_hours=_int_option(options, OPT_BATH_FAN_STOSS_INTERVAL_HOURS, BATH_FAN_STOSS_INTERVAL_HOURS, sources),
         fan_stoss_duration_minutes=_int_option(options, OPT_BATH_FAN_STOSS_DURATION_MINUTES, BATH_FAN_STOSS_DURATION_MINUTES, sources),
+        fan_hard_cap_minutes=_int_option(options, OPT_BATH_FAN_HARD_CAP_MINUTES, BATH_FAN_HARD_CAP_MINUTES, sources),
+        fan_cooldown_minutes=_int_option(options, OPT_BATH_FAN_COOLDOWN_MINUTES, BATH_FAN_COOLDOWN_MINUTES, sources),
+        diffuser_max_minutes=_int_option(options, OPT_BATH_DIFFUSER_MAX_MINUTES, BATH_DIFFUSER_MAX_MINUTES, sources),
         sources=sources,
     )
 
@@ -259,6 +283,9 @@ class BathroomHumidityInput:
     fan_usage_hold_until: datetime | None = None
     previous_bathroom_humidity: float | None = None
     previous_bathroom_humidity_at: datetime | None = None
+    # Rolling hard-cap state carried over from the previous evaluation.
+    cap_deadline: datetime | None = None
+    cooldown_until: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -273,6 +300,9 @@ class BathroomFanPlan:
     last_calculated: str | None = None
     apply_status: str = "pending"
     apply_block_reason: str = "none"
+    # Rolling hard-cap state to persist for the next evaluation.
+    cap_deadline: datetime | None = None
+    cooldown_until: datetime | None = None
 
     @property
     def plan_hash(self) -> str:
@@ -393,9 +423,16 @@ def bath_humidity_ground_heat_active(
     inp: BathroomClimateInput,
     teff: float | None,
     tuning: BathTuning,
+    *,
+    drying_active: bool = False,
 ) -> bool:
     if teff is None or teff > tuning.humidity_ground_heat_teff_limit:
         return False
+    # When the fan is in its humidity cooldown lockout (or venting cannot help),
+    # warmth is the only remaining drying lever, so in cool weather we engage
+    # ground heat regardless of the standalone humidity/dewpoint thresholds.
+    if drying_active:
+        return True
     humidity = inp.room_humidity
     if humidity is None:
         return False
@@ -415,6 +452,7 @@ def decide_bathroom_climate(
     *,
     indoor_tuning: PolicyTuning | None = None,
     floor_slab_delta: FloorSlabDeltaBreakdown | None = None,
+    fan_drying_active: bool = False,
 ) -> ZonePlan:
     blockers: list[str] = []
     path: list[str] = []
@@ -455,11 +493,13 @@ def decide_bathroom_climate(
     heat_demand: bool | None = False if profile == "off" else None
     indoor_reason: str | None = "candidate_profile_off" if profile == "off" else None
     indoor_rule = indoor_heat_rule_for("bathroom", profile, indoor_tuning) if profile != "protection" else None
-    humidity_ground_heat = profile == "grundwaerme" and bath_humidity_ground_heat_active(inp, teff, tuning)
+    humidity_ground_heat = profile == "grundwaerme" and bath_humidity_ground_heat_active(
+        inp, teff, tuning, drying_active=fan_drying_active
+    )
     indoor_heat_off_at = indoor_rule.heat_off_at if indoor_rule else None
     if humidity_ground_heat:
         target = max(target, tuning.humidity_ground_heat_target)
-        reason = "bath_humidity_ground_heat"
+        reason = "bath_cooldown_drying_heat" if fan_drying_active else "bath_humidity_ground_heat"
         path.append(reason)
         indoor_heat_off_at = max(indoor_heat_off_at or tuning.humidity_ground_heat_off_at, tuning.humidity_ground_heat_off_at)
     if profile != "protection" and indoor_rule is not None:
@@ -532,6 +572,45 @@ def decide_bathroom_climate(
     )
 
 
+def _apply_fan_hard_cap(
+    mode: BathFanMode,
+    reason: str,
+    *,
+    now: datetime,
+    event_protected: bool,
+    humidity_wants_on: bool,
+    cap_deadline: datetime | None,
+    cooldown_until: datetime | None,
+    hard_cap_minutes: int,
+    cooldown_minutes: int,
+) -> tuple[BathFanMode, str, datetime | None, datetime | None, str]:
+    """Enforce a rolling hard cap with cooldown lockout against 24/7 running.
+
+    The cap tracks the *uncapped* humidity demand (``humidity_wants_on``) so the
+    short off gaps from the per-mode duration caps do not reset the budget.
+    Genuine usage events refill a fresh window and clear any cooldown.
+    """
+    hard_cap = timedelta(minutes=hard_cap_minutes)
+    cooldown = timedelta(minutes=cooldown_minutes)
+
+    if event_protected:
+        return mode, reason, now + hard_cap, None, "event_refill"
+
+    if cooldown_until is not None and now < cooldown_until:
+        if mode in ("akut", "nachluft", "stoss"):
+            return "off", "bath_fan_cooldown_lockout", None, cooldown_until, "cooldown_lockout"
+        return mode, reason, None, cooldown_until, "cooldown_idle"
+
+    if not humidity_wants_on:
+        return mode, reason, None, None, "idle"
+
+    if cap_deadline is None:
+        return mode, reason, now + hard_cap, None, "budget_started"
+    if now >= cap_deadline:
+        return "off", "bath_fan_hard_cap_reached", None, now + cooldown, "hard_cap_reached"
+    return mode, reason, cap_deadline, None, "within_budget"
+
+
 def decide_bathroom_fan(
     humidity_input: BathroomHumidityInput,
     heating_plan: ZonePlan,
@@ -564,12 +643,20 @@ def decide_bathroom_fan(
     usage_hold = humidity_input.fan_usage_hold_active or toilet_activity or shower_activity
     usage_hold_protected = humidity_input.fan_usage_hold_active or toilet_activity
 
-    acute = (
+    humidity_acute_raw = (
         (humidity_rise_recent and humidity_rise > tuning.humidity_acute_rise_threshold)
         or
         (humidity is not None and humidity > tuning.humidity_acute_threshold)
         or (dewpoint is not None and dewpoint > tuning.dewpoint_acute_threshold)
     )
+    # Venting only lowers bathroom moisture when bathroom air is more humid than the
+    # air the fan pulls in (living). When ah_delta <= 0 (e.g. humid summer weather)
+    # running the fan is counterproductive, so humidity-only acute must not fire.
+    # ah_delta is None means living data is missing — keep the prior best-effort
+    # behaviour and allow acute rather than going dark.
+    venting_helps = ah_delta is None or ah_delta > 0
+    acute = humidity_acute_raw and venting_helps
+    acute_venting_unhelpful = humidity_acute_raw and not venting_helps
     if shower_activity:
         mode = "akut"
         reason = "bath_fan_shower_activity_hold"
@@ -579,6 +666,8 @@ def decide_bathroom_fan(
     elif acute:
         mode = "akut"
         reason = "bath_fan_acute_humidity_rise_or_threshold"
+    elif acute_venting_unhelpful:
+        reason = "bath_fan_acute_venting_unhelpful"
     elif ah_delta is None:
         reason = "bath_fan_missing_humidity_delta"
         blockers.append("humidity_delta_missing")
@@ -635,6 +724,23 @@ def decide_bathroom_fan(
         blockers.append("bath_heating_up_blocks_fan")
         mode = "off"
         reason = "bath_fan_blocked_by_heating_coordination"
+
+    humidity_wants_on = uncapped_mode in ("akut", "nachluft", "stoss")
+    mode, reason, next_cap_deadline, next_cooldown_until, hard_cap_state = _apply_fan_hard_cap(
+        mode,
+        reason,
+        now=now,
+        event_protected=usage_hold,
+        humidity_wants_on=humidity_wants_on,
+        cap_deadline=humidity_input.cap_deadline,
+        cooldown_until=humidity_input.cooldown_until,
+        hard_cap_minutes=tuning.fan_hard_cap_minutes,
+        cooldown_minutes=tuning.fan_cooldown_minutes,
+    )
+    in_cooldown_lockout = hard_cap_state in ("cooldown_lockout", "hard_cap_reached")
+    # Warmth is the drying lever when venting is pointless (negative ah_delta) or
+    # the fan is locked out in cooldown while humidity persists.
+    drying_recommended = humidity_acute_raw and (acute_venting_unhelpful or in_cooldown_lockout)
     coordination = (
         "max_duration_reached"
         if max_duration_reached
@@ -665,6 +771,12 @@ def decide_bathroom_fan(
         },
         "stoss_interval_hours": tuning.fan_stoss_interval_hours,
         "last_fan_active_at": last_fan_active_at.isoformat() if last_fan_active_at else None,
+        "hard_cap_state": hard_cap_state,
+        "hard_cap_minutes": tuning.fan_hard_cap_minutes,
+        "cooldown_minutes": tuning.fan_cooldown_minutes,
+        "cap_deadline": next_cap_deadline.isoformat() if next_cap_deadline else None,
+        "cooldown_until": next_cooldown_until.isoformat() if next_cooldown_until else None,
+        "drying_recommended": drying_recommended,
     })
     return BathroomFanPlan(
         zone="bathroom_fan",
@@ -676,4 +788,129 @@ def decide_bathroom_fan(
         policy_config_hash=tuning.signature,
         last_calculated=now.isoformat(),
         apply_block_reason=", ".join(blockers) if blockers else "none",
+        cap_deadline=next_cap_deadline,
+        cooldown_until=next_cooldown_until,
+    )
+
+
+@dataclass(frozen=True)
+class BathroomDiffuserPlan:
+    zone: str
+    mode: str  # "on" | "off"
+    reason: str
+    target_switch_state: str
+    blocked_by: list[str] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    policy_config_hash: str | None = None
+    last_calculated: str | None = None
+    apply_status: str = "pending"
+    apply_block_reason: str = "none"
+    # When the current diffuser run-window started (tied to the fan run).
+    run_started_at: datetime | None = None
+
+    @property
+    def plan_hash(self) -> str:
+        payload = {
+            "mode": self.mode,
+            "target_switch_state": self.target_switch_state,
+            "reason": self.reason,
+            "blocked_by": sorted(self.blocked_by),
+            "policy_config_hash": self.policy_config_hash,
+            "diagnostics": {
+                "fan_target_state": self.diagnostics.get("fan_target_state"),
+                "run_duration_minutes": self.diagnostics.get("run_duration_minutes"),
+                "max_duration_minutes": self.diagnostics.get("max_duration_minutes"),
+            },
+        }
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+    @property
+    def apply_blocked(self) -> bool:
+        return bool(self.blocked_by)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "zone": self.zone,
+            "mode": self.mode,
+            "reason": self.reason,
+            "target_switch_state": self.target_switch_state,
+            "blocked_by": list(self.blocked_by),
+            "diagnostics": dict(self.diagnostics),
+            "policy_config_hash": self.policy_config_hash,
+            "last_calculated": self.last_calculated,
+            "apply_status": self.apply_status,
+            "apply_block_reason": self.apply_block_reason,
+            "plan_hash": self.plan_hash,
+        }
+
+
+def decide_bathroom_diffuser(
+    fan_plan: BathroomFanPlan,
+    *,
+    run_started_at: datetime | None,
+    now: datetime,
+    tuning: BathTuning,
+) -> BathroomDiffuserPlan:
+    """Aroma diffuser follows the fan on, but ends after its own shorter cap.
+
+    Starts synchronously with the fan; once the diffuser cap is reached it turns
+    off while the fan may keep running (asynchronous end). It only restarts after
+    the fan has cycled off and on again (``run_started_at`` is cleared on fan off).
+    """
+    max_minutes = tuning.diffuser_max_minutes
+    fan_on = fan_plan.target_switch_state == "on"
+    diagnostics: dict[str, Any] = {
+        "fan_target_state": fan_plan.target_switch_state,
+        "max_duration_minutes": max_minutes,
+    }
+
+    if not fan_on:
+        diagnostics["run_duration_minutes"] = None
+        return BathroomDiffuserPlan(
+            zone="bathroom_diffuser",
+            mode="off",
+            reason="bath_diffuser_fan_off",
+            target_switch_state="off",
+            diagnostics=diagnostics,
+            policy_config_hash=tuning.signature,
+            last_calculated=now.isoformat(),
+            run_started_at=None,
+        )
+
+    if run_started_at is None:
+        diagnostics["run_duration_minutes"] = 0.0
+        return BathroomDiffuserPlan(
+            zone="bathroom_diffuser",
+            mode="on",
+            reason="bath_diffuser_follows_fan",
+            target_switch_state="on",
+            diagnostics=diagnostics,
+            policy_config_hash=tuning.signature,
+            last_calculated=now.isoformat(),
+            run_started_at=now,
+        )
+
+    duration = round(max(0.0, (now - run_started_at).total_seconds() / 60), 2)
+    diagnostics["run_duration_minutes"] = duration
+    if duration >= max_minutes:
+        return BathroomDiffuserPlan(
+            zone="bathroom_diffuser",
+            mode="off",
+            reason="bath_diffuser_max_duration_reached",
+            target_switch_state="off",
+            diagnostics=diagnostics,
+            policy_config_hash=tuning.signature,
+            last_calculated=now.isoformat(),
+            run_started_at=run_started_at,
+        )
+    return BathroomDiffuserPlan(
+        zone="bathroom_diffuser",
+        mode="on",
+        reason="bath_diffuser_follows_fan",
+        target_switch_state="on",
+        diagnostics=diagnostics,
+        policy_config_hash=tuning.signature,
+        last_calculated=now.isoformat(),
+        run_started_at=run_started_at,
     )

@@ -49,6 +49,7 @@
           "bathroom_humidity": "Bathroom humidity",
           "bathroom_thermostat": "Bathroom thermostat",
           "bath_fan": "Bathroom fan",
+          "bath_diffuser": "Bathroom diffuser",
           "bath_toilet_activity": "Bathroom toilet activity",
           "bath_shower_activity": "Bathroom shower activity"
         }
@@ -148,6 +149,7 @@
           "bathroom_humidity": "Bathroom humidity",
           "bathroom_thermostat": "Bathroom thermostat",
           "bath_fan": "Bathroom fan",
+          "bath_diffuser": "Bathroom diffuser",
           "bath_toilet_activity": "Bathroom toilet activity",
           "bath_shower_activity": "Bathroom shower activity"
         }
@@ -270,7 +272,10 @@
           "bath_fan_acute_max_minutes": "Acute maximum runtime",
           "bath_fan_afterrun_max_minutes": "Afterrun maximum runtime",
           "bath_fan_stoss_interval_hours": "Purge ventilation minimum interval",
-          "bath_fan_stoss_duration_minutes": "Purge ventilation duration"
+          "bath_fan_stoss_duration_minutes": "Purge ventilation duration",
+          "bath_fan_hard_cap_minutes": "Hard runtime cap (anti 24/7)",
+          "bath_fan_cooldown_minutes": "Cooldown lockout after hard cap",
+          "bath_diffuser_max_minutes": "Diffuser maximum runtime"
         }
       },
       "tuning_thresholds": {

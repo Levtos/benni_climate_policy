@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "benni_climate_policy"
-INTEGRATION_VERSION = "0.1.7"
+INTEGRATION_VERSION = "0.1.9"
 DATA_COORDINATOR = "coordinator"
 
 CONF_APPLY_ACTIVE = "apply_active"
@@ -51,6 +51,7 @@ CONF_KITCHEN_PATIO_OPEN = "kitchen_patio_door_open"
 CONF_KITCHEN_PATIO_TILT = "kitchen_patio_door_tilt"
 CORE_OPENINGS_MASTER_ENTITY = "sensor.benni_combined_openings"
 CONF_BATH_FAN = "bath_fan"
+CONF_BATH_DIFFUSER = "bath_diffuser"
 CONF_BATH_TOILET_ACTIVITY = "bath_toilet_activity"
 CONF_BATH_SHOWER_ACTIVITY = "bath_shower_activity"
 
@@ -113,6 +114,7 @@ PRESET = {
     CONF_KITCHEN_PATIO_OPEN: CORE_OPENINGS_MASTER_ENTITY,
     CONF_KITCHEN_PATIO_TILT: CORE_OPENINGS_MASTER_ENTITY,
     CONF_BATH_FAN: "switch.bath_fan",
+    CONF_BATH_DIFFUSER: "switch.bath_diffuser_plug",
     CONF_BATH_TOILET_ACTIVITY: "sensor.benni_combined_bath_toilet_active",
     CONF_BATH_SHOWER_ACTIVITY: "sensor.benni_combined_bath_shower_active",
 }

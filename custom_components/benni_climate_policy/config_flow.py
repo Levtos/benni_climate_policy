@@ -26,6 +26,9 @@ from .bathroom import (
     OPT_BATH_FAN_HEAT_COORDINATION_DELTA,
     OPT_BATH_FAN_STOSS_DURATION_MINUTES,
     OPT_BATH_FAN_STOSS_INTERVAL_HOURS,
+    OPT_BATH_FAN_HARD_CAP_MINUTES,
+    OPT_BATH_FAN_COOLDOWN_MINUTES,
+    OPT_BATH_DIFFUSER_MAX_MINUTES,
     OPT_BATH_HUMIDITY_ACUTE_RISE_THRESHOLD,
     OPT_BATH_HUMIDITY_ACUTE_THRESHOLD,
     OPT_BATH_HUMIDITY_END_THRESHOLD,
@@ -41,6 +44,7 @@ from .bathroom import (
 from .const import (
     CONF_APPLY_ACTIVE,
     CONF_APPLY_COOLDOWN_SECONDS,
+    CONF_BATH_DIFFUSER,
     CONF_BATH_FAN,
     CONF_BATH_SHOWER_ACTIVITY,
     CONF_BATH_TOILET_ACTIVITY,
@@ -165,6 +169,7 @@ STEP_ZONES = (
     CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM),
     CONF_ZONE_THERMOSTAT.format(zone=ZONE_BATHROOM),
     CONF_BATH_FAN,
+    CONF_BATH_DIFFUSER,
     CONF_BATH_TOILET_ACTIVITY,
     CONF_BATH_SHOWER_ACTIVITY,
 )
@@ -248,6 +253,7 @@ SELECTORS.update({
     CONF_ZONE_THERMOSTAT.format(zone=ZONE_KITCHEN): CLIMATE,
     CONF_ZONE_THERMOSTAT.format(zone=ZONE_BATHROOM): CLIMATE,
     CONF_BATH_FAN: SWITCH,
+    CONF_BATH_DIFFUSER: SWITCH,
     CONF_APPLY_ACTIVE: BOOL,
     CONF_STARTUP_BLOCK_SECONDS: POS_INT,
     CONF_COOLDOWN_SECONDS: INT,
@@ -300,6 +306,9 @@ SELECTORS.update({
     OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: BATH_MINUTES,
     OPT_BATH_FAN_STOSS_INTERVAL_HOURS: BATH_HOURS,
     OPT_BATH_FAN_STOSS_DURATION_MINUTES: BATH_MINUTES,
+    OPT_BATH_FAN_HARD_CAP_MINUTES: BATH_MINUTES,
+    OPT_BATH_FAN_COOLDOWN_MINUTES: BATH_MINUTES,
+    OPT_BATH_DIFFUSER_MAX_MINUTES: BATH_MINUTES,
 })
 SELECTORS.update({
     threshold_option_key(band, field): BOOL if field.endswith("_disabled") else THRESHOLD_FLOAT
@@ -379,6 +388,9 @@ def _defaults(hass, data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, An
         OPT_BATH_FAN_AFTERRUN_MAX_MINUTES: bath_tuning.fan_afterrun_max_minutes,
         OPT_BATH_FAN_STOSS_INTERVAL_HOURS: bath_tuning.fan_stoss_interval_hours,
         OPT_BATH_FAN_STOSS_DURATION_MINUTES: bath_tuning.fan_stoss_duration_minutes,
+        OPT_BATH_FAN_HARD_CAP_MINUTES: bath_tuning.fan_hard_cap_minutes,
+        OPT_BATH_FAN_COOLDOWN_MINUTES: bath_tuning.fan_cooldown_minutes,
+        OPT_BATH_DIFFUSER_MAX_MINUTES: bath_tuning.diffuser_max_minutes,
     })
     for band, config in tuning.threshold_bands.items():
         tuning_defaults.update({
