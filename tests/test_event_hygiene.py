@@ -80,6 +80,15 @@ def test_room_humidity_inputs_read_core_device_humidity_attribute():
     assert '"attribute": attr if state is not None and attr in state.attributes else None' in COORDINATOR_SOURCE
 
 
+def test_window_inputs_read_openings_master_attributes():
+    assert "OPENING_ATTRIBUTE_BY_KEY" in COORDINATOR_SOURCE
+    assert '"living_window_left"' in COORDINATOR_SOURCE
+    assert '"living_window_right"' in COORDINATOR_SOURCE
+    assert '"kitchen_patio_door"' in COORDINATOR_SOURCE
+    assert "def _master_opening_activity" in COORDINATOR_SOURCE
+    assert "CORE_OPENINGS_MASTER_ENTITY" in COORDINATOR_SOURCE
+
+
 def test_debug_payload_exposes_compact_performance_diagnostics():
     assert '"performance"' in COORDINATOR_SOURCE
     assert '"last_recalculate_at"' in COORDINATOR_SOURCE

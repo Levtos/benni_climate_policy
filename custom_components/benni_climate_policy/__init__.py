@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import (
+    CORE_OPENINGS_MASTER_ENTITY,
     DATA_COORDINATOR,
     DOMAIN,
     SERVICE_APPLY_NOW,
@@ -42,12 +43,15 @@ LEGACY_ENTITY_REPLACEMENTS: dict[str, str] = {
     "sensor.kitchen_humidity_atomic": "sensor.benni_device_kitchen_climate",
     "sensor.bath_temperature_atomic": "sensor.benni_device_bath_climate",
     "sensor.bath_humidity_atomic": "sensor.benni_device_bath_climate",
-    "binary_sensor.living_window_left_open_atomic": "sensor.benni_device_living_window_left",
-    "binary_sensor.living_window_left_tilt_atomic": "sensor.benni_device_living_window_left",
-    "binary_sensor.living_window_right_open_atomic": "sensor.benni_device_living_window_right",
-    "binary_sensor.living_window_right_tilt_atomic": "sensor.benni_device_living_window_right",
-    "binary_sensor.kitchen_patio_door_open_atomic": "sensor.benni_device_kitchen_patio_door",
-    "binary_sensor.kitchen_patio_door_tilt_atomic": "sensor.benni_device_kitchen_patio_door",
+    "binary_sensor.living_window_left_open_atomic": CORE_OPENINGS_MASTER_ENTITY,
+    "binary_sensor.living_window_left_tilt_atomic": CORE_OPENINGS_MASTER_ENTITY,
+    "binary_sensor.living_window_right_open_atomic": CORE_OPENINGS_MASTER_ENTITY,
+    "binary_sensor.living_window_right_tilt_atomic": CORE_OPENINGS_MASTER_ENTITY,
+    "binary_sensor.kitchen_patio_door_open_atomic": CORE_OPENINGS_MASTER_ENTITY,
+    "binary_sensor.kitchen_patio_door_tilt_atomic": CORE_OPENINGS_MASTER_ENTITY,
+    "sensor.benni_device_living_window_left": CORE_OPENINGS_MASTER_ENTITY,
+    "sensor.benni_device_living_window_right": CORE_OPENINGS_MASTER_ENTITY,
+    "sensor.benni_device_kitchen_patio_door": CORE_OPENINGS_MASTER_ENTITY,
     "binary_sensor.bath_toilet_active_combined": "sensor.benni_combined_bath_toilet_active",
     "binary_sensor.bath_shower_active_combined": "sensor.benni_combined_bath_shower_active",
 }

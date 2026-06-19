@@ -28,6 +28,7 @@ from .const import (
     CONF_LIVING_WINDOW_LEFT_TILT,
     CONF_LIVING_WINDOW_RIGHT_OPEN,
     CONF_LIVING_WINDOW_RIGHT_TILT,
+    CORE_OPENINGS_MASTER_ENTITY,
     CONF_OUTDOOR_FEELS_LIKE,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_LUX,
@@ -115,6 +116,15 @@ IMMEDIATE_DECISION_REASONS = {
     "night_hard_spar",
 }
 
+OPENING_ATTRIBUTE_BY_KEY = {
+    CONF_LIVING_WINDOW_LEFT_OPEN: "living_window_left",
+    CONF_LIVING_WINDOW_LEFT_TILT: "living_window_left",
+    CONF_LIVING_WINDOW_RIGHT_OPEN: "living_window_right",
+    CONF_LIVING_WINDOW_RIGHT_TILT: "living_window_right",
+    CONF_KITCHEN_PATIO_OPEN: "kitchen_patio_door",
+    CONF_KITCHEN_PATIO_TILT: "kitchen_patio_door",
+}
+
 
 def _float(value: str | None) -> float | None:
     if value in (None, "", "unknown", "unavailable", "none"):
@@ -134,6 +144,8 @@ def _state_value(value: str | None) -> str | None:
 def _preferred_attribute_for_key(key: str) -> str | None:
     if key.endswith("_humidity"):
         return "humidity"
+    if key in OPENING_ATTRIBUTE_BY_KEY:
+        return OPENING_ATTRIBUTE_BY_KEY[key]
     return None
 
 
@@ -204,6 +216,17 @@ def _window_activity_from_state(state: Any, attr_name: str, *, active_states: tu
         active = _coerce_bool(state.attributes.get(attr_name))
         return ("on" if active else "off"), active
     return state.state, state.state in active_states
+
+
+def _master_opening_activity(state: Any, attr_name: str, *, wants_open: bool) -> tuple[str | None, bool]:
+    if state is None:
+        return None, False
+    value = state.attributes.get(attr_name)
+    if value in ("unknown", "unavailable", None, ""):
+        return "unknown" if wants_open else "off", False
+    text = str(value).lower()
+    active = text == ("open" if wants_open else "tilted")
+    return ("on" if active else "off"), active
 
 
 class ClimatePolicyCoordinator:
@@ -679,16 +702,29 @@ class ClimatePolicyCoordinator:
     ) -> WindowState:
         open_state = self._state_obj(open_key)
         tilt_state = self._state_obj(tilt_key)
-        open_value, open_active = _window_activity_from_state(
-            open_state,
-            "open",
-            active_states=tuple(value for value in ("on", "open", "true", "True") if value is not False),
-        )
-        tilt_value, tilt_active = _window_activity_from_state(
-            tilt_state,
-            "tilted",
-            active_states=("on", "open", "true", "True", True),
-        )
+        if (
+            self.config.get(open_key) == CORE_OPENINGS_MASTER_ENTITY
+            and self.config.get(tilt_key) == CORE_OPENINGS_MASTER_ENTITY
+            and OPENING_ATTRIBUTE_BY_KEY.get(open_key) == OPENING_ATTRIBUTE_BY_KEY.get(tilt_key)
+        ):
+            attr_name = OPENING_ATTRIBUTE_BY_KEY[open_key]
+            open_value, open_active = _master_opening_activity(
+                open_state, attr_name, wants_open=True
+            )
+            tilt_value, tilt_active = _master_opening_activity(
+                tilt_state, attr_name, wants_open=False
+            )
+        else:
+            open_value, open_active = _window_activity_from_state(
+                open_state,
+                "open",
+                active_states=tuple(value for value in ("on", "open", "true", "True") if value is not False),
+            )
+            tilt_value, tilt_active = _window_activity_from_state(
+                tilt_state,
+                "tilted",
+                active_states=("on", "open", "true", "True", True),
+            )
         active_since = None
         if open_state and open_active:
             active_since = open_state.last_changed

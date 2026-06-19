@@ -49,6 +49,7 @@ CONF_LIVING_WINDOW_RIGHT_OPEN = "living_window_right_open"
 CONF_LIVING_WINDOW_RIGHT_TILT = "living_window_right_tilt"
 CONF_KITCHEN_PATIO_OPEN = "kitchen_patio_door_open"
 CONF_KITCHEN_PATIO_TILT = "kitchen_patio_door_tilt"
+CORE_OPENINGS_MASTER_ENTITY = "sensor.benni_combined_openings"
 CONF_BATH_FAN = "bath_fan"
 CONF_BATH_TOILET_ACTIVITY = "bath_toilet_activity"
 CONF_BATH_SHOWER_ACTIVITY = "bath_shower_activity"
@@ -105,12 +106,12 @@ PRESET = {
     CONF_ZONE_HUMIDITY.format(zone=ZONE_KITCHEN): "sensor.benni_device_kitchen_climate",
     CONF_ZONE_TEMPERATURE.format(zone=ZONE_BATHROOM): "sensor.benni_device_bath_climate",
     CONF_ZONE_HUMIDITY.format(zone=ZONE_BATHROOM): "sensor.benni_device_bath_climate",
-    CONF_LIVING_WINDOW_LEFT_OPEN: "sensor.benni_device_living_window_left",
-    CONF_LIVING_WINDOW_LEFT_TILT: "sensor.benni_device_living_window_left",
-    CONF_LIVING_WINDOW_RIGHT_OPEN: "sensor.benni_device_living_window_right",
-    CONF_LIVING_WINDOW_RIGHT_TILT: "sensor.benni_device_living_window_right",
-    CONF_KITCHEN_PATIO_OPEN: "sensor.benni_device_kitchen_patio_door",
-    CONF_KITCHEN_PATIO_TILT: "sensor.benni_device_kitchen_patio_door",
+    CONF_LIVING_WINDOW_LEFT_OPEN: CORE_OPENINGS_MASTER_ENTITY,
+    CONF_LIVING_WINDOW_LEFT_TILT: CORE_OPENINGS_MASTER_ENTITY,
+    CONF_LIVING_WINDOW_RIGHT_OPEN: CORE_OPENINGS_MASTER_ENTITY,
+    CONF_LIVING_WINDOW_RIGHT_TILT: CORE_OPENINGS_MASTER_ENTITY,
+    CONF_KITCHEN_PATIO_OPEN: CORE_OPENINGS_MASTER_ENTITY,
+    CONF_KITCHEN_PATIO_TILT: CORE_OPENINGS_MASTER_ENTITY,
     CONF_BATH_FAN: "switch.bath_fan",
     CONF_BATH_TOILET_ACTIVITY: "sensor.benni_combined_bath_toilet_active",
     CONF_BATH_SHOWER_ACTIVITY: "sensor.benni_combined_bath_shower_active",

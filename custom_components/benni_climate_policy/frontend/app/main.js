@@ -65,9 +65,9 @@ const ZONES = {
 };
 
 const LIVING_AREA_WINDOWS = [
-  ["Wohnzimmerfenster links", "sensor.benni_device_living_window_left", "sensor.benni_device_living_window_left"],
-  ["Wohnzimmerfenster rechts", "sensor.benni_device_living_window_right", "sensor.benni_device_living_window_right"],
-  ["Terrassentür Küche", "sensor.benni_device_kitchen_patio_door", "sensor.benni_device_kitchen_patio_door"],
+  ["Wohnzimmerfenster links", "sensor.benni_combined_openings", "living_window_left"],
+  ["Wohnzimmerfenster rechts", "sensor.benni_combined_openings", "living_window_right"],
+  ["Terrassentür Küche", "sensor.benni_combined_openings", "kitchen_patio_door"],
 ];
 
 const NAV = [
@@ -1008,9 +1008,10 @@ function compactReason(reason, zone = "") {
 
 function livingAreaWindowStatus(hass) {
   const active = [];
-  for (const [label, openEntity, tiltEntity] of LIVING_AREA_WINDOWS) {
-    const open = openEntity === tiltEntity ? attr(hass, openEntity, "open", stateText(hass, openEntity, "missing") === "on") : stateText(hass, openEntity, "missing") === "on";
-    const tilt = openEntity === tiltEntity ? attr(hass, openEntity, "tilted", false) : stateText(hass, tiltEntity, "missing") === "on";
+  for (const [label, entityId, attrName] of LIVING_AREA_WINDOWS) {
+    const value = String(attr(hass, entityId, attrName, "missing")).toLowerCase();
+    const open = value === "open";
+    const tilt = value === "tilted";
     if (open) active.push(`${label} offen`);
     if (tilt) active.push(`${label} gekippt`);
   }
